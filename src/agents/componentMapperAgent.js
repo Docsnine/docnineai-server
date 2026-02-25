@@ -1,15 +1,4 @@
-// src/agents/componentMapperAgent.js
-// ─────────────────────────────────────────────────────────────
-// AGENT 4 — Component Mapper
-// ─────────────────────────────────────────────────────────────
-// BATCHING STRATEGY:
-//   Old: 1 file → 1 LLM call = 30 calls for 30 components
-//   New: 4 files → 1 LLM call = ~8 calls for 30 components
-//
-//   Component purpose is clear from exports + function signatures
-//   at the top of each file. 4 files × 200 chars = ~800 chars
-//   = ~230 tokens — very efficient per call.
-// ─────────────────────────────────────────────────────────────
+// src/agents/componentMapperAgent.js — Agent 4: Component Mapper
 
 import { llmCall } from "../config/llm.js";
 
@@ -37,31 +26,42 @@ const TARGET_ROLES = new Set([
 const PATH_REGEX =
   /middleware|service|util|helper|hook|config|context|provider|store|component|\.config\./i;
 const EXCLUDE_REGEX = /route|controller|handler|model|schema|entity|migration/i;
-
 const FILES_PER_BATCH = 4;
-const CHARS_PER_FILE = 200; // exports + top-level function names only
+const CHARS_PER_FILE = 200;
 const MAX_FILES = 30;
 
-export async function componentMapperAgent({ files, projectMap, structure }) {
-  console.log("🔧 [Agent 4] ComponentMapper — documenting components…");
+export async function componentMapperAgent({
+  files,
+  projectMap,
+  structure,
+  emit,
+}) {
+  const notify = (msg, detail) => {
+    if (emit) emit(msg, detail);
+  };
 
   const targetFiles = files
     .filter((f) => {
       const meta = projectMap.find((m) => m.path === f.path);
-      const roleMatch = meta && TARGET_ROLES.has(meta.role);
-      const pathMatch = PATH_REGEX.test(f.path) && !EXCLUDE_REGEX.test(f.path);
-      return roleMatch || pathMatch;
+      return (
+        (meta && TARGET_ROLES.has(meta.role)) ||
+        (PATH_REGEX.test(f.path) && !EXCLUDE_REGEX.test(f.path))
+      );
     })
     .slice(0, MAX_FILES);
 
-  console.log(
-    `   ↳ ${targetFiles.length} component files → ${Math.ceil(targetFiles.length / FILES_PER_BATCH)} batched LLM calls`,
+  const totalBatches = Math.ceil(targetFiles.length / FILES_PER_BATCH);
+  notify(
+    `Found ${targetFiles.length} component files`,
+    `${totalBatches} batched LLM calls`,
   );
 
   const components = [];
 
   for (let i = 0; i < targetFiles.length; i += FILES_PER_BATCH) {
+    const batchNum = Math.floor(i / FILES_PER_BATCH) + 1;
     const batch = targetFiles.slice(i, i + FILES_PER_BATCH);
+    notify(`Documenting components…`, `Batch ${batchNum} of ${totalBatches}`);
 
     const userContent = batch
       .map(
@@ -74,7 +74,6 @@ export async function componentMapperAgent({ files, projectMap, structure }) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) components.push(...parsed);
     } catch {
-      // Fallback: generate entries from projectMap without LLM
       for (const file of batch) {
         const meta = projectMap.find((m) => m.path === file.path);
         components.push({
@@ -84,7 +83,7 @@ export async function componentMapperAgent({ files, projectMap, structure }) {
             .replace(/\.[^.]+$/, ""),
           file: file.path,
           type: meta?.role || "utility",
-          description: meta?.summary || "No description available",
+          description: meta?.summary || "No description",
           exports: [],
           dependencies: [],
         });
@@ -92,6 +91,6 @@ export async function componentMapperAgent({ files, projectMap, structure }) {
     }
   }
 
-  console.log(`   ✅ Mapped ${components.length} components`);
+  notify(`${components.length} components documented`);
   return { components };
 }

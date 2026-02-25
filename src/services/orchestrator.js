@@ -1,91 +1,194 @@
-// src/services/orchestrator.js
+// src/services/orchestrator.js — v3 with granular progress events
 // ─────────────────────────────────────────────────────────────
-// Orchestrator v2 — 6-agent pipeline
-// ─────────────────────────────────────────────────────────────
-// Execution order:
-//   GitHub fetch
-//   → Agent 1 (Scanner)           [sequential — others depend on it]
-//   → Agents 2,3,4,6 in parallel  [independent reads]
-//   → Agent 5 (DocWriter)         [needs all above]
+// Progress event schema:
+//   { step, status: "running"|"done"|"error"|"waiting",
+//     msg, detail, ts }
+//
+// Every agent receives an `emit` callback so it can broadcast
+// its own sub-step messages (batch N/M, throttle waits, etc.)
 // ─────────────────────────────────────────────────────────────
 
-import { fetchRepoFiles }         from "./githubService.js";
-import { repoScannerAgent }       from "../agents/repoScannerAgent.js";
-import { apiExtractorAgent }      from "../agents/apiExtractorAgent.js";
-import { schemaAnalyserAgent }    from "../agents/schemaAnalyserAgent.js";
-import { componentMapperAgent }   from "../agents/componentMapperAgent.js";
-import { docWriterAgent }         from "../agents/docWriterAgent.js";
-import { securityAuditorAgent }   from "../agents/securityAuditorAgent.js";
+import { fetchRepoFiles, fetchRepoFilesWithProgress } from "./githubService.js";
+import { repoScannerAgent } from "../agents/repoScannerAgent.js";
+import { apiExtractorAgent } from "../agents/apiExtractorAgent.js";
+import { schemaAnalyserAgent } from "../agents/schemaAnalyserAgent.js";
+import { componentMapperAgent } from "../agents/componentMapperAgent.js";
+import { docWriterAgent } from "../agents/docWriterAgent.js";
+import { securityAuditorAgent } from "../agents/securityAuditorAgent.js";
 import { createChatSession, getSuggestedQuestions } from "./chatService.js";
 
 export async function orchestrate(repoUrl, onProgress) {
-  const log = (step, msg) => {
-    console.log(`[${step}] ${msg}`);
-    if (onProgress) onProgress({ step, msg, ts: Date.now() });
+  // Structured event emitter — all progress flows through here
+  const emit = (step, status, msg, detail = null) => {
+    const event = { step, status, msg, detail, ts: Date.now() };
+    console.log(`[${step}:${status}] ${msg}${detail ? " — " + detail : ""}`);
+    if (onProgress) onProgress(event);
   };
 
   try {
-    // ── STEP 0: Fetch ───────────────────────────────────────
-    log("fetch", `🚀 Fetching repo: ${repoUrl}`);
-    const { meta, files, owner, repo } = await fetchRepoFiles(repoUrl);
-    log("fetch", `✅ Fetched ${files.length} files from ${owner}/${repo}`);
+    // ── STEP 1: Fetch repo ────────────────────────────────────
+    emit("fetch", "running", "Connecting to GitHub…");
+    const { meta, files, owner, repo } = await fetchRepoFilesWithProgress(
+      repoUrl,
+      (msg) => emit("fetch", "running", msg), // pass sub-progress into githubService
+    );
+    emit(
+      "fetch",
+      "done",
+      `${files.length} files downloaded`,
+      `${owner}/${repo}`,
+    );
 
-    // ── STEP 1: Scan & classify ─────────────────────────────
-    log("scan", "🔍 Running Agent 1: Repo Scanner");
+    // ── STEP 2: Repo Scanner (Agent 1) ────────────────────────
+    emit(
+      "scan",
+      "running",
+      "Classifying files with AI…",
+      "Agent 1 — Repo Scanner",
+    );
     const { projectMap, techStack, entryPoints, structure } =
-      await repoScannerAgent({ files, meta });
-    log("scan", `✅ Tech stack: ${techStack.join(", ") || "detected"}`);
+      await repoScannerAgent({
+        files,
+        meta,
+        emit: (msg, detail) => emit("scan", "running", msg, detail),
+      });
+    emit(
+      "scan",
+      "done",
+      `${projectMap.length} files classified`,
+      techStack.join(" · ") || "Stack detected",
+    );
 
-    // ── STEPS 2, 3, 4, 6: Parallel ─────────────────────────
-    log("parallel", "⚡ Running Agents 2, 3, 4 & 6 in parallel");
+    // ── STEPS 3–6: Parallel agents ────────────────────────────
+    emit(
+      "api",
+      "running",
+      "Extracting API endpoints…",
+      "Agent 2 — scanning route files",
+    );
+    emit(
+      "schema",
+      "running",
+      "Analysing data models…",
+      "Agent 3 — scanning schema files",
+    );
+    emit(
+      "components",
+      "running",
+      "Mapping components…",
+      "Agent 4 — services, middleware, utilities",
+    );
+    emit(
+      "security",
+      "running",
+      "Running security audit…",
+      "Agent 6 — static scan + AI deep scan",
+    );
+
     const [
       { endpoints },
       { models, relationships },
       { components },
       { findings, score, grade, counts, reportMarkdown },
     ] = await Promise.all([
-      apiExtractorAgent   ({ files, projectMap }),
-      schemaAnalyserAgent ({ files, projectMap }),
-      componentMapperAgent({ files, projectMap, structure }),
-      securityAuditorAgent({ files }),
+      apiExtractorAgent({
+        files,
+        projectMap,
+        emit: (msg, detail) => emit("api", "running", msg, detail),
+      }),
+      schemaAnalyserAgent({
+        files,
+        projectMap,
+        emit: (msg, detail) => emit("schema", "running", msg, detail),
+      }),
+      componentMapperAgent({
+        files,
+        projectMap,
+        structure,
+        emit: (msg, detail) => emit("components", "running", msg, detail),
+      }),
+      securityAuditorAgent({
+        files,
+        emit: (msg, detail) => emit("security", "running", msg, detail),
+      }),
     ]);
 
-    log("parallel", `✅ APIs:${endpoints.length} | Models:${models.length} | Components:${components.length} | Security:${score}/100(${grade})`);
+    emit("api", "done", `${endpoints.length} endpoints extracted`);
+    emit(
+      "schema",
+      "done",
+      `${models.length} models, ${relationships.length} relationships`,
+    );
+    emit("components", "done", `${components.length} components mapped`);
+    emit(
+      "security",
+      "done",
+      `Security score: ${score}/100 (Grade ${grade})`,
+      `Critical:${counts.CRITICAL} High:${counts.HIGH} Medium:${counts.MEDIUM} Low:${counts.LOW}`,
+    );
 
-    // ── STEP 5: Write docs ──────────────────────────────────
-    log("write", "✍️  Running Agent 5: Doc Writer");
+    // ── STEP 7: Doc Writer (Agent 5) ──────────────────────────
+    emit("write", "running", "Writing README.md…", "Agent 5 — Doc Writer");
     const { readme, internalDocs, apiReference, schemaDocs } =
       await docWriterAgent({
-        meta, techStack, structure, endpoints,
-        models, relationships, components, entryPoints, owner, repo,
+        meta,
+        techStack,
+        structure,
+        endpoints,
+        models,
+        relationships,
+        components,
+        entryPoints,
+        owner,
+        repo,
+        emit: (msg, detail) => emit("write", "running", msg, detail),
       });
+    emit("write", "done", "All documentation generated");
 
-    // ── STEP 6: Create chat session ─────────────────────────
-    log("chat", "💬 Initialising chat session");
-    const output = { readme, internalDocs, apiReference, schemaDocs, securityReport: reportMarkdown };
-    const jobId  = `${owner}-${repo}-${Date.now()}`;
-    createChatSession({ jobId, output, meta });
+    // ── STEP 8: Chat session ──────────────────────────────────
+    emit("chat", "running", "Setting up chat session…");
+    const output = {
+      readme,
+      internalDocs,
+      apiReference,
+      schemaDocs,
+      securityReport: reportMarkdown,
+    };
+    const sessionId = `${owner}-${repo}-${Date.now()}`;
+    createChatSession({ jobId: sessionId, output, meta });
     const suggestedQuestions = getSuggestedQuestions(output);
+    emit("chat", "done", "Chat ready — ask anything about this codebase");
 
-    log("done", "🎉 Documentation complete!");
-
+    // ── Done ──────────────────────────────────────────────────
     const stats = {
       filesAnalysed: files.length,
-      endpoints    : endpoints.length,
-      models       : models.length,
+      endpoints: endpoints.length,
+      models: models.length,
       relationships: relationships.length,
-      components   : components.length,
+      components: components.length,
     };
+    emit(
+      "done",
+      "done",
+      "Documentation complete 🎉",
+      `${files.length} files · ${endpoints.length} endpoints · ${models.length} models`,
+    );
 
     return {
-      success : true,
-      repoUrl, owner, repo, meta, techStack, stats,
+      success: true,
+      repoUrl,
+      owner,
+      repo,
+      meta,
+      techStack,
+      stats,
       security: { score, grade, counts, findings: findings.slice(0, 50) },
       output,
-      chat    : { sessionId: jobId, suggestedQuestions },
+      chat: { sessionId, suggestedQuestions },
     };
   } catch (err) {
     console.error("❌ Orchestration failed:", err);
-    return { success: false, error: err.message, stack: err.stack };
+    emit("error", "error", err.message, err.stack?.split("\n")[1]?.trim());
+    return { success: false, error: err.message };
   }
 }

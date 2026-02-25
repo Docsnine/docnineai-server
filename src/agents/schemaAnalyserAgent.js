@@ -1,16 +1,4 @@
-// src/agents/schemaAnalyserAgent.js
-// ─────────────────────────────────────────────────────────────
-// AGENT 3 — Schema Analyser
-// ─────────────────────────────────────────────────────────────
-// BATCHING STRATEGY:
-//   Old: 1 file → 1 LLM call = 63 calls for 63 schema files
-//   New: 3 files → 1 LLM call = ~7 calls for 20 schema files
-//
-//   Each file contributes its first 250 chars (field definitions
-//   are at the top of model files — we don't need the whole file)
-//   3 files × 250 chars = ~750 chars = ~215 tokens per batch
-//   Well within budget, and captures all field definitions.
-// ─────────────────────────────────────────────────────────────
+// src/agents/schemaAnalyserAgent.js — Agent 3: Schema Analyser
 
 import { llmCall } from "../config/llm.js";
 
@@ -27,26 +15,23 @@ Return ONLY valid JSON (no markdown, no explanation):
   "relationships": [{
     "from": "User", "to": "Post",
     "type": "one-to-many | many-to-many | one-to-one",
-    "through": "optional join table/model name or null"
+    "through": null
   }]
 }
 If nothing found, return { "models": [], "relationships": [] }.`;
 
-// Schema file detector patterns
 const SCHEMA_ROLES = new Set(["model", "schema", "migration"]);
 const SCHEMA_REGEX =
-  /mongoose\.Schema|new Schema\(|sequelize\.define|@Entity|@Table|@Column|prisma\.|TypeORM|class.*extends.*Model|SQLAlchemy|Base\.metadata|models\.Model|createTable|db\.Model|DataTypes\.|belongsTo|hasMany|hasOne|belongsToMany/i;
+  /mongoose\.Schema|new Schema\(|sequelize\.define|@Entity|@Table|@Column|prisma\.|TypeORM|class.*extends.*Model|SQLAlchemy|DataTypes\.|belongsTo|hasMany|hasOne|belongsToMany/i;
 const PATH_REGEX = /model|schema|entity|migration|database\/|db\//i;
-
-// How many files to pack into one LLM call
 const FILES_PER_BATCH = 3;
-// How many chars to take from each file (field defs are at the top)
 const CHARS_PER_FILE = 280;
-// Hard cap on total schema files to process
-const MAX_SCHEMA_FILES = 20;
+const MAX_FILES = 20;
 
-export async function schemaAnalyserAgent({ files, projectMap }) {
-  console.log("🗄️  [Agent 3] SchemaAnalyser — mapping models & relationships…");
+export async function schemaAnalyserAgent({ files, projectMap, emit }) {
+  const notify = (msg, detail) => {
+    if (emit) emit(msg, detail);
+  };
 
   const schemaFiles = files
     .filter((f) => {
@@ -57,20 +42,22 @@ export async function schemaAnalyserAgent({ files, projectMap }) {
         PATH_REGEX.test(f.path)
       );
     })
-    .slice(0, MAX_SCHEMA_FILES);
+    .slice(0, MAX_FILES);
 
-  console.log(
-    `   ↳ ${schemaFiles.length} schema files → ${Math.ceil(schemaFiles.length / FILES_PER_BATCH)} batched LLM calls`,
+  const totalBatches = Math.ceil(schemaFiles.length / FILES_PER_BATCH);
+  notify(
+    `Found ${schemaFiles.length} schema files`,
+    `${totalBatches} batched LLM calls`,
   );
 
-  const allModels = [];
-  const allRelationships = [];
+  const allModels = [],
+    allRelationships = [];
 
-  // Group files into batches of FILES_PER_BATCH
   for (let i = 0; i < schemaFiles.length; i += FILES_PER_BATCH) {
+    const batchNum = Math.floor(i / FILES_PER_BATCH) + 1;
     const batch = schemaFiles.slice(i, i + FILES_PER_BATCH);
+    notify(`Extracting models…`, `Batch ${batchNum} of ${totalBatches}`);
 
-    // Pack multiple files into one prompt — separated clearly
     const userContent = batch
       .map(
         (f) => `=== FILE: ${f.path} ===\n${f.content.slice(0, CHARS_PER_FILE)}`,
@@ -84,11 +71,10 @@ export async function schemaAnalyserAgent({ files, projectMap }) {
       if (Array.isArray(parsed.relationships))
         allRelationships.push(...parsed.relationships);
     } catch {
-      // Batch had no schema content — skip
+      /* skip */
     }
   }
 
-  // Deduplicate models by name (multiple files can define the same model)
   const seen = new Set();
   const models = allModels.filter((m) => {
     if (!m.name || seen.has(m.name)) return false;
@@ -96,7 +82,6 @@ export async function schemaAnalyserAgent({ files, projectMap }) {
     return true;
   });
 
-  // Deduplicate relationships
   const relSeen = new Set();
   const relationships = allRelationships.filter((r) => {
     const key = `${r.from}→${r.to}`;
@@ -105,8 +90,8 @@ export async function schemaAnalyserAgent({ files, projectMap }) {
     return true;
   });
 
-  console.log(
-    `   ✅ Found ${models.length} models, ${relationships.length} relationships`,
+  notify(
+    `${models.length} models, ${relationships.length} relationships found`,
   );
   return { models, relationships };
 }

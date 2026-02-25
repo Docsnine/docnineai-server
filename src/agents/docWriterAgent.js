@@ -1,136 +1,134 @@
-// src/agents/docWriterAgent.js
-// ─────────────────────────────────────────────────────────────
-// AGENT 5 — Doc Writer
-// ─────────────────────────────────────────────────────────────
-// TOKEN BUDGET STRATEGY (Groq free tier = 6,000 TPM)
-//
-//  Problem: 73 models + 79 relationships + 30 components as
-//           pretty-printed JSON = 20,000+ tokens. Instant 413.
-//
-//  Solution — three rules:
-//    1. Build COMPRESSED context (no JSON.stringify indentation)
-//    2. README and Internal Docs get DIFFERENT lean payloads
-//       — README gets: meta, tech, endpoints, model NAMES only
-//       — Internal gets: structure, components, relationships summary
-//    3. API Reference + Schema Docs are built STATICALLY
-//       (no LLM call needed — pure string builders)
-//
-//  Result: each LLM call stays under ~2,500 tokens
-// ─────────────────────────────────────────────────────────────
+// src/agents/docWriterAgent.js — Agent 5: Doc Writer
 
 import { llmCall } from "../config/llm.js";
 
-// ── System prompts ────────────────────────────────────────────
 const README_SYSTEM_PROMPT = `You are a senior technical writer.
 Write a complete, professional README.md in Markdown.
 Use real badges, code blocks, and tables — no placeholder text.
-Sections to include: overview, tech stack, features, installation,
-environment variables, API summary, data models overview, contributing.
-Keep it under 600 words — be dense and useful, not padded.`;
+Sections: overview, tech stack, features, installation, environment variables, API summary, data models overview, contributing.
+Keep it under 600 words — dense and useful, not padded.`;
 
 const INTERNAL_SYSTEM_PROMPT = `You are a senior software architect writing internal developer docs.
 Write a concise internal documentation guide in Markdown.
-Cover: architecture overview, component responsibilities, data flow,
-key relationships, gotchas for new developers.
-Keep it under 500 words — be direct, no fluff.`;
+Cover: architecture overview, component responsibilities, data flow, key relationships, gotchas for new developers.
+Keep it under 500 words — direct, no fluff.`;
 
-// ── Context builders — each stays well under 2,000 tokens ─────
-
-function buildReadmeContext({ meta, techStack, endpoints, models, owner, repo }) {
-  // Model names + descriptions only — no fields (those are in schemaDocs)
+function buildReadmeContext({
+  meta,
+  techStack,
+  endpoints,
+  models,
+  owner,
+  repo,
+}) {
   const modelSummary = models
     .slice(0, 12)
-    .map((m) => `${m.name}: ${m.description || "no description"}`)
+    .map((m) => `${m.name}: ${m.description || ""}`)
     .join("; ");
-
   const endpointSummary = endpoints
     .slice(0, 10)
     .map((e) => `${e.method} ${e.path}`)
     .join(", ");
-
-  // Compact object — no JSON indentation
   return JSON.stringify({
-    repo        : `${owner}/${repo}`,
-    name        : meta.name,
-    description : meta.description,
-    language    : meta.language,
-    stars       : meta.stars,
+    repo: `${owner}/${repo}`,
+    name: meta.name,
+    description: meta.description,
+    language: meta.language,
+    stars: meta.stars,
     techStack,
-    endpoints   : endpointSummary || "none detected",
-    models      : modelSummary    || "none detected",
-    topics      : meta.topics?.join(", ") || "",
+    endpoints: endpointSummary || "none",
+    models: modelSummary || "none",
+    topics: meta.topics?.join(", ") || "",
   });
 }
 
-function buildInternalContext({ structure, components, relationships, entryPoints, techStack }) {
-  // Relationship summary: "User one-to-many Post, Post many-to-many Tag"
+function buildInternalContext({
+  structure,
+  components,
+  relationships,
+  entryPoints,
+  techStack,
+}) {
   const relSummary = relationships
     .slice(0, 20)
     .map((r) => `${r.from} ${r.type} ${r.to}`)
     .join("; ");
-
-  // Component list: name + type + description (no exports/deps)
   const compSummary = components
     .slice(0, 10)
-    .map((c) => `${c.name} (${c.type}): ${c.description || ""}`)
+    .map((c) => `${c.name}(${c.type}): ${c.description || ""}`)
     .join("; ");
-
-  // Structure: role → count (not the full file list)
-  const structureSummary = Object.fromEntries(
-    Object.entries(structure).map(([role, files]) => [role, files.length])
+  const structCount = Object.fromEntries(
+    Object.entries(structure).map(([r, f]) => [r, f.length]),
   );
-
   return JSON.stringify({
     techStack,
-    entryPoints : entryPoints.slice(0, 5),
-    structure   : structureSummary,
-    components  : compSummary  || "none",
-    relationships: relSummary  || "none",
+    entryPoints: entryPoints.slice(0, 5),
+    structure: structCount,
+    components: compSummary || "none",
+    relationships: relSummary || "none",
   });
 }
 
-// ── Main agent ────────────────────────────────────────────────
 export async function docWriterAgent({
-  meta, techStack, structure, endpoints,
-  models, relationships, components, entryPoints, owner, repo,
+  meta,
+  techStack,
+  structure,
+  endpoints,
+  models,
+  relationships,
+  components,
+  entryPoints,
+  owner,
+  repo,
+  emit,
 }) {
-  console.log("✍️  [Agent 5] DocWriter — generating documentation…");
+  const notify = (msg, detail) => {
+    if (emit) emit(msg, detail);
+  };
 
-  const readmeCtx   = buildReadmeContext({ meta, techStack, endpoints, models, owner, repo });
-  const internalCtx = buildInternalContext({ structure, components, relationships, entryPoints, techStack });
+  const readmeCtx = buildReadmeContext({
+    meta,
+    techStack,
+    endpoints,
+    models,
+    owner,
+    repo,
+  });
+  const internalCtx = buildInternalContext({
+    structure,
+    components,
+    relationships,
+    entryPoints,
+    techStack,
+  });
 
-  // Estimate and log token usage before sending
-  const readmeTokens   = Math.ceil(readmeCtx.length   / 4);
-  const internalTokens = Math.ceil(internalCtx.length / 4);
-  console.log(`   ↳ README context: ~${readmeTokens} tokens | Internal context: ~${internalTokens} tokens`);
+  const rt = Math.ceil(readmeCtx.length / 4);
+  const it = Math.ceil(internalCtx.length / 4);
+  notify("Writing README.md…", `~${rt} tokens`);
 
-  // ── README ─────────────────────────────────────────────────
-  console.log("   ↳ Writing README.md…");
   const readme = await llmCall({
     systemPrompt: README_SYSTEM_PROMPT,
-    userContent : `Write a README.md for this project:\n${readmeCtx}`,
-    temperature : 0.2,
+    userContent: `Write a README.md for this project:\n${readmeCtx}`,
+    temperature: 0.2,
   });
 
-  // ── Internal Docs ──────────────────────────────────────────
-  console.log("   ↳ Writing internal docs…");
+  notify("Writing internal developer docs…", `~${it} tokens`);
   const internalDocs = await llmCall({
     systemPrompt: INTERNAL_SYSTEM_PROMPT,
-    userContent : `Write internal developer documentation:\n${internalCtx}`,
-    temperature : 0.1,
+    userContent: `Write internal developer documentation:\n${internalCtx}`,
+    temperature: 0.1,
   });
 
-  // ── API Reference — built statically, zero LLM cost ───────
+  notify("Building API reference table…", "static — no LLM cost");
   const apiReference = buildApiReference(endpoints);
 
-  // ── Schema Docs — built statically, zero LLM cost ─────────
+  notify("Building schema documentation…", "static — no LLM cost");
   const schemaDocs = buildSchemaDocs(models, relationships);
 
-  console.log("   ✅ Documentation generated");
+  notify("All documents ready");
   return { readme, internalDocs, apiReference, schemaDocs };
 }
 
-// ── Static builders ───────────────────────────────────────────
 function buildApiReference(endpoints) {
   if (!endpoints.length) return "No API endpoints detected.";
   let md = "# API Reference\n\n";
@@ -143,14 +141,13 @@ function buildApiReference(endpoints) {
   for (const [group, eps] of Object.entries(grouped)) {
     md += `## /${group}\n\n`;
     for (const ep of eps) {
-      md += `### \`${ep.method} ${ep.path}\`\n`;
-      md += `${ep.description || "No description"}\n\n`;
+      md += `### \`${ep.method} ${ep.path}\`\n${ep.description || "No description"}\n\n`;
       md += `**Auth required:** ${ep.auth ? "✅ Yes" : "❌ No"}\n\n`;
       if (ep.params?.length) {
         md += `**Parameters:**\n\n| Name | In | Type | Required |\n|------|-----|------|----------|\n`;
-        for (const p of ep.params) {
+        ep.params.forEach((p) => {
           md += `| \`${p.name}\` | ${p.in} | \`${p.type}\` | ${p.required ? "✅" : "❌"} |\n`;
-        }
+        });
         md += "\n";
       }
       if (ep.returns) md += `**Returns:** ${ep.returns}\n\n`;
@@ -168,18 +165,17 @@ function buildSchemaDocs(models, relationships) {
     if (model.description) md += `${model.description}\n\n`;
     if (model.fields?.length) {
       md += `| Field | Type | Required | Unique |\n|-------|------|----------|--------|\n`;
-      for (const f of model.fields) {
+      model.fields.forEach((f) => {
         md += `| \`${f.name}\` | \`${f.type}\` | ${f.required ? "✅" : "❌"} | ${f.unique ? "✅" : "❌"} |\n`;
-      }
+      });
       md += "\n";
     }
   }
   if (relationships.length) {
-    md += "## Relationships\n\n";
-    md += "| From | Relationship | To | Via |\n|------|-------------|-----|-----|\n";
-    for (const r of relationships) {
+    md += `## Relationships\n\n| From | Relationship | To | Via |\n|------|-------------|-----|-----|\n`;
+    relationships.forEach((r) => {
       md += `| ${r.from} | ${r.type} | ${r.to} | ${r.through || "—"} |\n`;
-    }
+    });
   }
   return md;
 }
