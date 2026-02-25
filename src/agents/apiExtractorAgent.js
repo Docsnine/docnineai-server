@@ -28,9 +28,10 @@ export async function apiExtractorAgent({ files, projectMap }) {
   console.log("🌐 [Agent 2] ApiExtractor — extracting endpoints…");
 
   // Only look at route/controller files
-  const ROUTE_ROLES  = new Set(["route", "controller", "entry"]);
+  const ROUTE_ROLES = new Set(["route", "controller", "entry"]);
   // Cast wider net — detect routes by content patterns, not just classified role
-  const ROUTE_REGEX = /router\.(get|post|put|delete|patch)\s*\(|app\.(get|post|put|delete|patch)\s*\(|@(Get|Post|Put|Delete|Patch|Request)\s*\(|path\s*=\s*['"]\/|urlpatterns\s*=|Route\(|\.route\(['"]|fastify\.(get|post|put|delete)|hono\.(get|post)|createRouter/i;
+  const ROUTE_REGEX =
+    /router\.(get|post|put|delete|patch)\s*\(|app\.(get|post|put|delete|patch)\s*\(|@(Get|Post|Put|Delete|Patch|Request)\s*\(|path\s*=\s*['"]\/|urlpatterns\s*=|Route\(|\.route\(['"]|fastify\.(get|post|put|delete)|hono\.(get|post)|createRouter/i;
 
   const routeFiles = files.filter((f) => {
     const meta = projectMap.find((m) => m.path === f.path);
@@ -45,25 +46,29 @@ export async function apiExtractorAgent({ files, projectMap }) {
 
   const allEndpoints = [];
 
-  for (const file of routeFiles) {
-    const chunks  = chunkText(file.content, 450);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  for (const [fileIdx, file] of routeFiles.entries()) {
+    const chunks = chunkText(file.content, 450);
     const batches = batchChunks(chunks, 3);
 
     for (const [idx, batch] of batches.entries()) {
       const userContent = `FILE: ${file.path}\n\n${formatBatch(batch)}`;
       try {
-        const raw    = await llmCall({ systemPrompt: SYSTEM_PROMPT, userContent });
+        const raw = await llmCall({ systemPrompt: SYSTEM_PROMPT, userContent });
         const parsed = JSON.parse(raw);
         allEndpoints.push(...parsed.map((ep) => ({ ...ep, file: file.path })));
       } catch {
         // non-route chunk — skip silently
       }
+      if (fileIdx < routeFiles.length - 1 || idx < batches.length - 1)
+        await sleep(250);
     }
   }
 
   // Deduplicate by method+path
-  const seen       = new Set();
-  const endpoints  = allEndpoints.filter((ep) => {
+  const seen = new Set();
+  const endpoints = allEndpoints.filter((ep) => {
     const key = `${ep.method}:${ep.path}`;
     if (seen.has(key)) return false;
     seen.add(key);
