@@ -6,10 +6,10 @@ import { randomUUID } from "crypto";
 import dotenv    from "dotenv";
 dotenv.config();
 
-import { orchestrate }          from "./services/orchestrator.js";
+import { orchestrate }          from "./services/orchestrator.service.js";
 import { chat }                 from "./services/chatService.js";
 import { exportToPDF, exportToNotion } from "./services/exportService.js";
-import { handleWebhook, generateGitHubActionsWorkflow } from "./services/webhookService.js";
+import { handleWebhook, generateGitHubActionsWorkflow } from "./services/webhook.service.js";
 
 const app  = express();
 const PORT = process.env.PORT || 3000;

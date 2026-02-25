@@ -1,25 +1,35 @@
 {
   "name": "project-documentor",
-  "version": "2.0.0",
-  "description": "AI-powered GitHub project documentation generator — SaaS Edition",
-  "main": "src/index.js",
+  "version": "3.0.0",
+  "description": "AI-powered GitHub documentation generator — SaaS platform with auth, projects, and live pipeline streaming",
+  "main": "src/server.js",
   "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "nodemon src/index.js"
+    "start": "node src/server.js",
+    "start:legacy": "node src/index.js",
+    "dev": "nodemon src/server.js",
+    "dev:legacy": "nodemon src/index.js"
   },
   "dependencies": {
     "openai": "^4.47.1",
     "express": "^4.19.2",
     "express-rate-limit": "^7.3.1",
+    "express-validator": "^7.1.0",
     "axios": "^1.7.2",
     "dotenv": "^16.4.5",
     "cors": "^2.8.5",
     "morgan": "^1.10.0",
+    "cookie-parser": "^1.4.6",
+    "mongoose": "^8.4.0",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "nodemailer": "^6.9.13",
     "marked": "^12.0.0",
     "pdfkit": "^0.15.0",
-    "@notionhq/client": "^2.2.15",
-    "crypto": "^1.0.1"
+    "@notionhq/client": "^2.2.15"
   },
   "devDependencies": {
     "nodemon": "^3.1.3"

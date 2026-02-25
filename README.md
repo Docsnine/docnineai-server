@@ -1,8 +1,9 @@
-# Docnine Documentation
+# ⚡ Project Documentor v3
 
-> **AI-powered GitHub documentation generator**
+> **AI-powered GitHub documentation generator** — SaaS platform with authentication, persistent projects, and live pipeline streaming.
 
 ![Node.js](https://img.shields.io/badge/Node.js-20+-green)
+![MongoDB](https://img.shields.io/badge/MongoDB-8+-green)
 ![Groq](https://img.shields.io/badge/LLM-Groq%20llama--3.1--8b-orange)
 ![Agents](https://img.shields.io/badge/Agents-6-blue)
 ![License](https://img.shields.io/badge/license-MIT-blue)
@@ -11,83 +12,68 @@
 
 ## Table of Contents
 
-- [Docnine Documentation](#docnine-documentation)
-  - [Table of Contents](#table-of-contents)
-  - [Features](#features)
-  - [Architecture](#architecture)
-  - [Quick Start](#quick-start)
-  - [Environment Variables](#environment-variables)
-  - [API Reference](#api-reference)
-    - [POST /api/document](#post-apidocument)
-    - [POST /api/chat](#post-apichat)
-  - [GitHub Actions — Auto-Sync Setup](#github-actions--auto-sync-setup)
-    - [Option A — Download from the app (easiest)](#option-a--download-from-the-app-easiest)
-    - [Option B — Create it manually](#option-b--create-it-manually)
-    - [Deploying Project Documentor so GitHub can reach it](#deploying-project-documentor-so-github-can-reach-it)
-    - [What triggers re-documentation](#what-triggers-re-documentation)
-  - [Webhook Setup](#webhook-setup)
-    - [Step 1 — Set your webhook secret](#step-1--set-your-webhook-secret)
-    - [Step 2 — Register the webhook in GitHub](#step-2--register-the-webhook-in-github)
-    - [Step 3 — Verify it works](#step-3--verify-it-works)
-    - [How the webhook validates requests](#how-the-webhook-validates-requests)
-  - [Export Options](#export-options)
-    - [PDF](#pdf)
-    - [Notion](#notion)
-  - [Token \& Context Strategy](#token--context-strategy)
-  - [Project Structure](#project-structure)
+1. [What's New in v3](#whats-new-in-v3)
+2. [Architecture](#architecture)
+3. [Quick Start](#quick-start)
+4. [Environment Variables](#environment-variables)
+5. [API Reference](#api-reference)
+   - [Auth](#auth-routes)
+   - [GitHub](#github-routes)
+   - [Projects](#project-routes)
+   - [Exports](#export-routes)
+   - [Legacy Pipeline](#legacy-api-v2-compatible)
+6. [GitHub OAuth Setup](#github-oauth-setup)
+7. [Webhook & Auto-Sync](#webhook--auto-sync)
+8. [Deployment](#deployment)
+9. [Project Structure](#project-structure)
 
 ---
 
-## Features
+## What's New in v3
 
-| Feature                  | Description                                                |
-| ------------------------ | ---------------------------------------------------------- |
-| 🔍 **6-Agent Pipeline**   | Scanner → API → Schema → Components → Security → DocWriter |
-| 🔒 **Security Audit**     | 14-rule static scan + LLM deep analysis, scored 0–100      |
-| 💬 **Chat With Codebase** | Ask questions about any repo after docs are generated      |
-| 📄 **PDF Export**         | Multi-section formatted PDF, streamed directly             |
-| 📝 **Notion Export**      | Pushes structured pages to your Notion workspace           |
-| ⚙️ **GitHub Actions**     | Auto-regenerate docs on every push to `main`               |
-| 🔄 **Webhook Auto-Sync**  | HMAC-validated webhook keeps docs permanently fresh        |
+| Feature                       | Description                                                                          |
+| ----------------------------- | ------------------------------------------------------------------------------------ |
+| 🔐 **Auth**                    | JWT access tokens (15 min) + rotating refresh tokens (7 days, httpOnly cookie)       |
+| 🗄 **MongoDB persistence**     | Projects, users, and GitHub tokens stored in MongoDB                                 |
+| 🔄 **Refresh token rotation**  | Each refresh invalidates the previous token — replay attacks are detected            |
+| 🔒 **Encrypted GitHub tokens** | OAuth access tokens stored AES-256-GCM encrypted at rest                             |
+| 📁 **Project dashboard**       | Full CRUD — create, list, archive, delete, retry failed pipelines                    |
+| 📡 **Per-project SSE**         | `/projects/:id/stream` replays persisted events after page refresh or server restart |
+| ♻️  **Pipeline retry**         | `POST /projects/:id/retry` re-runs the pipeline on any error or completed project    |
+| 📦 **MongoDB-backed exports**  | PDF, YAML, and Notion exports work after server restarts (read from DB, not memory)  |
+| 🔗 **GitHub repo picker**      | OAuth-connected users can pick repos from a paginated list                           |
+| ✅ **v2 backward-compatible**  | All `/api/*` legacy routes still work with no changes required                       |
 
 ---
 
 ## Architecture
 
 ```
-GitHub URL
+HTTP Request
     │
     ▼
-[GitHub Service] — fetches files, filters binaries, respects rate limits
+server.js  ──  import "dotenv/config"  (first import, ESM race-free)
     │
-    ▼
-┌───────────────────────────────────────┐
-│  Agent 1: Repo Scanner                │
-│  • Classifies every file by role      │
-│  • Detects tech stack                 │
-│  • Builds project map                 │
-└──────────────┬────────────────────────┘
-               │  fan-out (parallel)
-   ┌───────────┼───────────┬────────────┐
-   ▼           ▼           ▼            ▼
-Agent 2     Agent 3     Agent 4      Agent 6
-API         Schema      Component    Security
-Extractor   Analyser    Mapper       Auditor
-   └───────────┴───────────┴────────────┘
-               │  results merged
-               ▼
-    ┌─────────────────────┐
-    │  Agent 5: Doc Writer │
-    │  • README.md         │
-    │  • Internal Docs     │
-    │  • API Reference     │
-    │  • Schema Docs       │
-    └─────────────────────┘
-               │
-               ▼
-    Chat Session Created
-    (docs become context)
+    ├── CORS + body parsing + morgan
+    │
+    ├── GET /health
+    │
+    └── api/router.js
+          ├── /auth     → auth.routes.js   → auth.controller.js   → auth.service.js
+          ├── /github   → github.routes.js → github.controller.js → github.service.js
+          ├── /projects → project.routes.js → project.controller.js → project.service.js
+          │                                        │
+          │                                        ├── project.service.js → orchestrator.js
+          │                                        │         └── 6 AI agents (parallel)
+          │                                        │
+          │                                        └── jobRegistry.js  (shared SSE state)
+          │
+          └── /api  → legacy.router.js  (v2 compatible, no auth)
+                           └── same orchestrator + jobRegistry
 ```
+
+**Shared SSE infrastructure** — `jobRegistry.js` is the single in-memory store for running jobs and SSE clients. Both `/projects/:id/stream` and `/api/stream/:jobId` use it.  
+**Event persistence** — every pipeline event is also written to `Project.events` in MongoDB (last 200 kept), so the stream can be replayed after a page refresh or server restart.
 
 ---
 
@@ -103,289 +89,417 @@ npm install
 
 # 3. Configure environment
 cp .env.example .env
-# Edit .env — add GROQ_API_KEY at minimum
+# Open .env and set:
+#   MONGODB_URI, GROQ_API_KEY,
+#   JWT_ACCESS_SECRET, JWT_REFRESH_SECRET, ENCRYPTION_KEY
 
 # 4. Start
-npm start
-# → http://localhost:3000
+npm run dev          # development (nodemon)
+npm start            # production
 ```
 
-Get your free Groq API key at [console.groq.com](https://console.groq.com).
+**Minimum required variables:** `MONGODB_URI`, `GROQ_API_KEY`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `ENCRYPTION_KEY`.
+
+Get a free Groq key at [console.groq.com](https://console.groq.com).
 
 ---
 
 ## Environment Variables
 
+See `.env.example` for the full annotated list. Key variables:
+
+| Variable                                   | Required      | Purpose                                                   |
+| ------------------------------------------ | ------------- | --------------------------------------------------------- |
+| `MONGODB_URI`                              | ✅             | MongoDB connection string                                 |
+| `GROQ_API_KEY`                             | ✅             | Powers all 6 AI agents                                    |
+| `JWT_ACCESS_SECRET`                        | ✅             | Signs 15-min access tokens                                |
+| `JWT_REFRESH_SECRET`                       | ✅             | Signs 7-day refresh tokens                                |
+| `ENCRYPTION_KEY`                           | ✅             | AES-256-GCM key for GitHub token storage (64 hex chars)   |
+| `GITHUB_TOKEN`                             | ⚠️ Recommended | Server-level PAT — raises GitHub API limit 60→5000 req/hr |
+| `GITHUB_CLIENT_ID`                         | OAuth only    | Required for GitHub repo picker                           |
+| `GITHUB_CLIENT_SECRET`                     | OAuth only    | Required for GitHub repo picker                           |
+| `GITHUB_REDIRECT_URI`                      | OAuth only    | Must match GitHub OAuth App settings                      |
+| `SMTP_HOST` / `SMTP_USER` / `SMTP_PASS`    | Email only    | Without these, emails are logged to console               |
+| `NOTION_API_KEY` / `NOTION_PARENT_PAGE_ID` | Notion only   | Required for Notion export                                |
+| `WEBHOOK_SECRET`                           | Webhook only  | HMAC secret for GitHub push webhook                       |
+| `FRONTEND_URL`                             | Prod          | Locked CORS origin + OAuth redirect target                |
+
+**Generating secrets:**
 ```bash
-# .env
-GROQ_API_KEY=your_groq_api_key        # Required — from console.groq.com
-GITHUB_TOKEN=your_github_token        # Strongly recommended — raises rate limit 60→5000/hr
-PORT=3000                              # Optional — default 3000
+# JWT secrets and webhook secret
+node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 
-# Token management (optional — defaults shown)
-CHUNK_SIZE=400                         # Tokens per LLM chunk
-BATCH_SIZE=5                           # Chunks per LLM call
-MAX_FILES_PER_REPO=100                 # Max files fetched per repo
-MAX_FILE_SIZE_KB=50                    # Skip files larger than this
-
-# Notion export (optional)
-NOTION_API_KEY=your_notion_token
-NOTION_PARENT_PAGE_ID=your_page_id
-
-# Webhook auto-sync (optional)
-WEBHOOK_SECRET=any_random_secret_string
+# Encryption key (must be exactly 64 hex chars = 32 bytes)
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
-
-| Variable                | Required      | Purpose                                        |
-| ----------------------- | ------------- | ---------------------------------------------- |
-| `GROQ_API_KEY`          | ✅ Yes         | Powers all 6 AI agents                         |
-| `GITHUB_TOKEN`          | ⚠️ Recommended | Without it GitHub limits you to 60 requests/hr |
-| `NOTION_API_KEY`        | ❌ Optional    | Only needed for Notion export                  |
-| `NOTION_PARENT_PAGE_ID` | ❌ Optional    | Notion page to create docs under               |
-| `WEBHOOK_SECRET`        | ❌ Optional    | Required for secure webhook validation         |
 
 ---
 
 ## API Reference
 
-```
-POST /api/document              Trigger documentation pipeline
-GET  /api/document/:jobId       Poll job status + result
-GET  /api/stream/:jobId         SSE live progress stream
-POST /api/chat                  Chat with codebase (after docs generated)
-GET  /api/export/pdf/:jobId     Download documentation as PDF
-POST /api/export/notion/:jobId  Push documentation to Notion
-GET  /api/export/workflow/:jobId  Download GitHub Actions workflow file
-POST /api/webhook               GitHub push webhook receiver
-GET  /health                    Health check
+All responses follow a consistent envelope:
+
+```jsonc
+// Success
+{ "success": true, "data": { ... }, "message": "..." }
+
+// Error
+{ "success": false, "error": { "code": "SCREAMING_SNAKE", "message": "..." } }
+
+// Validation error (422)
+{ "success": false, "error": { "code": "VALIDATION_ERROR", "fields": [...] } }
 ```
 
-### POST /api/document
+**Authentication:** Send the access token as `Authorization: Bearer <token>` on all protected routes.
+
+---
+
+### Auth Routes
+
+#### `POST /auth/signup`
+Create a new account. Sends a verification email.
 
 ```bash
-curl -X POST http://localhost:3000/api/document \
+curl -X POST /auth/signup \
   -H "Content-Type: application/json" \
-  -d '{"repoUrl": "https://github.com/owner/repo"}'
-
-# Response
-{ "jobId": "uuid", "status": "running", "streamUrl": "/api/stream/uuid" }
+  -d '{"name":"Alice","email":"alice@example.com","password":"secret123"}'
 ```
 
-### POST /api/chat
+**Request body:** `name` (string, max 80), `email`, `password` (min 8 chars)  
+**Response 201:** `{ user, accessToken }` + sets `refreshToken` httpOnly cookie
+
+---
+
+#### `POST /auth/login`
+```bash
+curl -X POST /auth/login \
+  -d '{"email":"alice@example.com","password":"secret123"}'
+```
+**Response 200:** `{ user, accessToken }` + sets `refreshToken` httpOnly cookie
+
+---
+
+#### `POST /auth/refresh`
+Exchange the refresh-token cookie for a new access token. Rotates the refresh token — each use invalidates the previous one.
 
 ```bash
-curl -X POST http://localhost:3000/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{"sessionId": "uuid", "message": "How does authentication work?"}'
+curl -X POST /auth/refresh --cookie "refreshToken=<token>"
+```
+**No Authorization header needed.** Reads `refreshToken` cookie.  
+**Response 200:** `{ user, accessToken }` + new `refreshToken` cookie
 
-# Response
-{ "reply": "Authentication uses JWT...", "historyLength": 1 }
+---
+
+#### `POST /auth/logout`
+Invalidates the refresh token server-side and clears the cookie.
+
+```bash
+curl -X POST /auth/logout -H "Authorization: Bearer <token>"
 ```
 
 ---
 
-## GitHub Actions — Auto-Sync Setup
+#### `POST /auth/verify-email`
+**Body:** `{ token }` — the raw token from the email link  
 
-This is how you make documentation **never go stale**. Every push to `main` triggers a full re-documentation run automatically.
+#### `POST /auth/forgot-password`
+**Body:** `{ email }` — always returns 200 (no email enumeration)  
 
-### Option A — Download from the app (easiest)
+#### `POST /auth/reset-password`
+**Body:** `{ token, password, confirmPassword }`  
 
-After generating docs for a repo, click **"⚙️ GitHub Actions Workflow"** in the sidebar. This downloads a pre-configured `document.yml` file.
+#### `GET /auth/me`
+Returns the current authenticated user's profile.
 
-Place it in your target repository at:
+---
 
-```
-your-repo/
-└── .github/
-    └── workflows/
-        └── document.yml   ← place it here
-```
+### GitHub Routes
 
-Commit and push. Done.
-
-### Option B — Create it manually
-
-Create `.github/workflows/document.yml` in your repository with the following content:
-
-```yaml
-name: Auto-Document
-
-on:
-  push:
-    branches: [ main, master ]
-    paths:
-      - '**.js'
-      - '**.ts'
-      - '**.py'
-      - '**.go'
-      - '**.rs'
-      - '**.java'
-      - '**.prisma'
-      - '**.graphql'
-  workflow_dispatch:
-
-jobs:
-  document:
-    name: Generate Documentation
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Trigger Documentation Generation
-        id: trigger
-        env:
-          API_BASE_URL: https://your-documentor-instance.com
-        run: |
-          REPO_URL="${{ github.server_url }}/${{ github.repository }}"
-          RESPONSE=$(curl -s -X POST \
-            -H "Content-Type: application/json" \
-            -d "{\"repoUrl\": \"$REPO_URL\"}" \
-            "$API_BASE_URL/api/document")
-          JOB_ID=$(echo "$RESPONSE" | jq -r '.jobId')
-          echo "job_id=$JOB_ID" >> $GITHUB_OUTPUT
-          echo "Triggered job: $JOB_ID"
-
-      - name: Wait for completion
-        env:
-          API_BASE_URL: https://your-documentor-instance.com
-          JOB_ID: ${{ steps.trigger.outputs.job_id }}
-        run: |
-          MAX_WAIT=600
-          ELAPSED=0
-          while [ $ELAPSED -lt $MAX_WAIT ]; do
-            STATUS=$(curl -s "$API_BASE_URL/api/document/$JOB_ID" | jq -r '.status')
-            echo "Status: $STATUS (${ELAPSED}s elapsed)"
-            if [ "$STATUS" = "done" ]; then
-              echo "Documentation generated successfully"
-              exit 0
-            elif [ "$STATUS" = "error" ]; then
-              echo "Documentation generation failed"
-              exit 1
-            fi
-            sleep 15
-            ELAPSED=$((ELAPSED + 15))
-          done
-          echo "Timeout waiting for documentation"
-          exit 1
-```
-
-> **Replace** `https://your-documentor-instance.com` with the URL where your Project Documentor instance is running.
-
-### Deploying Project Documentor so GitHub can reach it
-
-GitHub Actions needs a public URL. Options:
-
-**Railway (recommended — free tier available)**
+#### `GET /github/oauth/start` 🔒
+Returns the GitHub authorization URL. The client must navigate to it (`window.location.href = data.url`).
 
 ```bash
-# Install Railway CLI
+curl /github/oauth/start -H "Authorization: Bearer <token>"
+# Response: { "data": { "url": "https://github.com/login/oauth/authorize?..." } }
+```
+
+---
+
+#### `GET /github/oauth/callback`
+**Public — no Authorization header.** GitHub redirects the browser here after the user grants access. Redirects to `FRONTEND_URL/?github=connected&user=<username>` on success, or `?github=error&msg=<message>` on failure.
+
+---
+
+#### `GET /github/repos` 🔒
+List the authenticated user's GitHub repositories.
+
+```bash
+curl "/github/repos?page=1&perPage=30&type=all&sort=updated" \
+  -H "Authorization: Bearer <token>"
+```
+
+**Query params:** `page` (default 1), `perPage` (default 30, max 100), `type` (`all`|`owner`|`member`|`public`|`private`), `sort` (`updated`|`created`|`pushed`|`full_name`)  
+**Response:** `{ repos[], page, perPage, hasNextPage }`
+
+---
+
+#### `GET /github/status` 🔒
+Returns GitHub connection status for the current user.
+
+**Response:** `{ connected: false }` or `{ connected: true, githubUsername, scopes[], connectedAt }`
+
+#### `DELETE /github/disconnect` 🔒
+Removes the stored GitHub token and unlinks the GitHub account.
+
+---
+
+### Project Routes
+
+All project routes require authentication (`🔒`).
+
+#### `POST /projects` 🔒
+Create a project and immediately start the AI documentation pipeline.
+
+```bash
+curl -X POST /projects \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"repoUrl":"https://github.com/owner/repo"}'
+```
+
+**Request body:** `{ repoUrl }` — full GitHub URL, SSH URL, or `owner/repo` shorthand  
+**Response 201:** `{ project, streamUrl: "/projects/:id/stream" }`  
+**Error 409:** `DUPLICATE_PROJECT` if a pipeline is already running for this repo
+
+---
+
+#### `GET /projects` 🔒
+List your projects with pagination, filtering, and full-text search.
+
+```bash
+curl "/projects?page=1&limit=20&status=done&sort=-createdAt&search=express" \
+  -H "Authorization: Bearer <token>"
+```
+
+**Query params:**
+
+| Param    | Default      | Description                                                                          |
+| -------- | ------------ | ------------------------------------------------------------------------------------ |
+| `page`   | 1            | Page number                                                                          |
+| `limit`  | 20 (max 100) | Results per page                                                                     |
+| `status` | —            | Filter: `queued` `running` `done` `error` `archived`                                 |
+| `sort`   | `-createdAt` | Sort field: `createdAt` `-createdAt` `updatedAt` `-updatedAt` `repoName` `-repoName` |
+| `search` | —            | Full-text search across repo name, owner, and description                            |
+
+**Response:** `{ projects[], total, page, limit, totalPages }`
+
+---
+
+#### `GET /projects/:id` 🔒
+Full project detail including all generated output (readme, apiReference, schemaDocs, internalDocs, securityReport).
+
+**Response:** `{ project }` with all fields populated after a successful pipeline run.
+
+---
+
+#### `PATCH /projects/:id` 🔒
+Archive a project (the only currently supported mutation).
+
+```bash
+curl -X PATCH /projects/:id \
+  -H "Authorization: Bearer <token>" \
+  -d '{"status":"archived"}'
+```
+
+**Error 409:** `PROJECT_RUNNING` if the pipeline is still running.
+
+---
+
+#### `DELETE /projects/:id` 🔒
+Hard-delete a project and all its data. Blocked while the pipeline is running.
+
+**Error 409:** `PROJECT_RUNNING`
+
+---
+
+#### `POST /projects/:id/retry` 🔒
+Re-run the documentation pipeline. Allowed for `done` and `error` projects only. Resets all output fields and starts a fresh run.
+
+```bash
+curl -X POST /projects/:id/retry -H "Authorization: Bearer <token>"
+```
+
+**Response 202:** `{ project, streamUrl: "/projects/:id/stream" }`  
+**Error 409:** `PROJECT_RUNNING` or `PROJECT_ARCHIVED`
+
+---
+
+#### `GET /projects/:id/stream` 🔒
+SSE stream of live pipeline events. Replays all buffered events for late-connecting clients. Works after server restarts — reconstructs a synthetic done event from MongoDB if the in-memory job is gone.
+
+```javascript
+const es = new EventSource(`/projects/${id}/stream`, {
+  headers: { Authorization: `Bearer ${token}` }
+});
+es.onmessage = (e) => {
+  const event = JSON.parse(e.data);
+  if (event.step === "done") { /* pipeline complete */ }
+  if (event.step === "error") { /* pipeline failed */ }
+};
+```
+
+**Event shape:** `{ step, status, msg, detail, ts }` during pipeline; `{ step: "done", result: {...} }` on completion.
+
+---
+
+### Export Routes
+
+All export routes read from MongoDB — they work even after a server restart, unlike the legacy `/api/export/*` routes which require the in-memory job to still exist.
+
+#### `GET /projects/:id/export/pdf` 🔒
+Stream a multi-section PDF of the documentation.
+
+```bash
+curl /projects/:id/export/pdf \
+  -H "Authorization: Bearer <token>" \
+  --output documentation.pdf
+```
+
+**Error 409:** `PROJECT_NOT_READY` if the pipeline hasn't completed successfully.  
+**Error 503:** `SERVICE_UNAVAILABLE` if `pdfkit` isn't installed.
+
+---
+
+#### `GET /projects/:id/export/yaml` 🔒
+Download a ready-to-use GitHub Actions workflow file that auto-regenerates documentation on every push to `main`.
+
+```bash
+curl /projects/:id/export/yaml \
+  -H "Authorization: Bearer <token>" \
+  --output .github/workflows/document.yml
+```
+
+---
+
+#### `POST /projects/:id/export/notion` 🔒
+Push the documentation to a Notion workspace. Requires `NOTION_API_KEY` and `NOTION_PARENT_PAGE_ID` in `.env`.
+
+```bash
+curl -X POST /projects/:id/export/notion \
+  -H "Authorization: Bearer <token>"
+```
+
+**Response:** `{ mainPageUrl, mainPageId, childPages[] }`
+
+---
+
+### Legacy API (v2 compatible)
+
+These routes are **unauthenticated** and work exactly as they did in v2. They use the same SSE infrastructure as `/projects/:id/stream`.
+
+| Method | Route                         | Description                                                           |
+| ------ | ----------------------------- | --------------------------------------------------------------------- |
+| `POST` | `/api/document`               | Start pipeline. Body: `{ repoUrl }`. Response: `{ jobId, streamUrl }` |
+| `GET`  | `/api/stream/:jobId`          | SSE live events for a job                                             |
+| `POST` | `/api/chat`                   | Chat with docs. Body: `{ sessionId, message }`                        |
+| `GET`  | `/api/export/pdf/:jobId`      | Download PDF (job must be in memory)                                  |
+| `POST` | `/api/export/notion/:jobId`   | Push to Notion (job must be in memory)                                |
+| `GET`  | `/api/export/workflow/:jobId` | Download GitHub Actions YAML                                          |
+| `POST` | `/api/webhook`                | GitHub push webhook receiver                                          |
+
+> **Note:** Legacy export routes require the job to still be in memory. Use the authenticated `/projects/:id/export/*` routes for persistent exports.
+
+---
+
+#### `GET /health`
+```jsonc
+{
+  "status": "ok",
+  "version": "3.0.0",
+  "env": "development",
+  "uptime": 42,
+  "services": {
+    "orchestrator": true,
+    "chat": true,
+    "pdf": true,
+    "notion": false,
+    "webhook": true
+  }
+}
+```
+
+---
+
+## GitHub OAuth Setup
+
+1. Go to [github.com/settings/developers](https://github.com/settings/developers) → **OAuth Apps** → **New OAuth App**
+2. Set **Authorization callback URL** to `http://localhost:3000/github/oauth/callback` (or your deployed URL)
+3. Copy the **Client ID** and generate a **Client Secret**
+4. Add to `.env`:
+   ```bash
+   GITHUB_CLIENT_ID=your_client_id
+   GITHUB_CLIENT_SECRET=your_client_secret
+   GITHUB_REDIRECT_URI=http://localhost:3000/github/oauth/callback
+   ```
+
+**Flow:**
+1. Client calls `GET /github/oauth/start` → receives `{ url }` → navigates to `url`
+2. User approves on GitHub → GitHub redirects browser to `GITHUB_REDIRECT_URI`
+3. Server exchanges code, fetches profile, stores AES-256-GCM encrypted token
+4. Server redirects browser to `FRONTEND_URL/?github=connected&user=<username>`
+
+---
+
+## Webhook & Auto-Sync
+
+Automatically regenerate documentation whenever code is pushed to the default branch.
+
+### Setup
+
+1. Set `WEBHOOK_SECRET` in `.env` to any random string
+2. Go to your repo → **Settings** → **Webhooks** → **Add webhook**
+   - Payload URL: `https://your-instance.com/api/webhook`
+   - Content type: `application/json`
+   - Secret: same value as `WEBHOOK_SECRET`
+   - Events: **Just the push event**
+
+The webhook receiver validates every request using HMAC-SHA256 with a timing-safe comparison. Pushes to non-default branches and commits with no code file changes are silently ignored.
+
+### GitHub Actions Alternative
+
+Download a pre-configured workflow from `GET /projects/:id/export/yaml` and place it at `.github/workflows/document.yml` in your target repository. Adjust `API_BASE_URL` to point to your deployed instance.
+
+---
+
+## Deployment
+
+The server has no filesystem state — all data lives in MongoDB. It can be deployed to any platform that supports Node.js and environment variables.
+
+### Railway
+```bash
 npm install -g @railway/cli
-
-railway login
-railway init
-railway up
-# Railway gives you a public URL like https://project-documentor-production.up.railway.app
+railway login && railway init && railway up
+# Set environment variables in the Railway dashboard
 ```
 
-**Render**
+### Render
+Connect your GitHub repository to [render.com](https://render.com), set environment variables in the dashboard, and deploy.
+
+### Docker
+```dockerfile
+FROM node:20-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --omit=dev
+COPY src ./src
+EXPOSE 3000
+CMD ["node", "src/server.js"]
+```
 
 ```bash
-# Push to GitHub, connect repo to render.com
-# Set environment variables in Render dashboard
-# Deploy — Render provides a public URL automatically
+docker build -t project-documentor .
+docker run -p 3000:3000 --env-file .env project-documentor
 ```
-
-**ngrok (local development / testing)**
-
-```bash
-# Expose your local server temporarily
-ngrok http 3000
-# Use the https://xxxx.ngrok.io URL in document.yml
-```
-
-### What triggers re-documentation
-
-The workflow only runs when code files change. Pushes that only modify `.md`, `.txt`, images, or other non-code files are **ignored** — no wasted API calls.
-
-Files that trigger a run: `.js` `.ts` `.tsx` `.jsx` `.py` `.go` `.rs` `.java` `.prisma` `.graphql`
-
-You can also trigger it manually from the **Actions** tab in GitHub at any time using `workflow_dispatch`.
-
----
-
-## Webhook Setup
-
-For real-time sync (docs update within seconds of a push), set up the webhook directly in GitHub.
-
-### Step 1 — Set your webhook secret
-
-In your `.env`:
-
-```bash
-WEBHOOK_SECRET=pick_any_long_random_string_here
-```
-
-### Step 2 — Register the webhook in GitHub
-
-Go to your repository → **Settings** → **Webhooks** → **Add webhook**
-
-| Field        | Value                                         |
-| ------------ | --------------------------------------------- |
-| Payload URL  | `https://your-instance.com/api/webhook`       |
-| Content type | `application/json`                            |
-| Secret       | Same value as `WEBHOOK_SECRET` in your `.env` |
-| Events       | Select **"Just the push event"**              |
-
-Click **Add webhook**.
-
-### Step 3 — Verify it works
-
-Push any code change to `main`. You should see a green tick next to the webhook delivery in GitHub, and a new documentation job will start on your server immediately.
-
-### How the webhook validates requests
-
-Every incoming webhook is verified using **HMAC-SHA256** with a timing-safe comparison — preventing both forged requests and timing attacks. If the signature doesn't match, the request is rejected with `401`.
-
-Only pushes to the **default branch** (main/master) trigger re-documentation. The server also checks that at least one code file was changed before starting the pipeline — preventing unnecessary runs from doc-only commits.
-
----
-
-## Export Options
-
-### PDF
-
-Click **"📄 Download PDF"** in the sidebar after generating docs, or call the API directly:
-
-```bash
-curl http://localhost:3000/api/export/pdf/{jobId} --output documentation.pdf
-```
-
-### Notion
-
-1. Create a Notion integration at [notion.so/my-integrations](https://www.notion.so/my-integrations)
-2. Copy the **Internal Integration Token** → set as `NOTION_API_KEY` in `.env`
-3. Share a Notion page with your integration → copy the page ID → set as `NOTION_PARENT_PAGE_ID`
-4. Click **"📝 Push to Notion"** in the sidebar
-
-The exporter creates one parent page with child pages for README, API Reference, Schema, Security Report, and Architecture docs.
-
----
-
-## Token & Context Strategy
-
-The entire pipeline is designed to stay within Groq's free tier limits while handling repos of 100+ files.
-
-| Strategy              | Implementation                                                       |
-| --------------------- | -------------------------------------------------------------------- |
-| Chunk size            | 300–500 tokens per LLM request                                       |
-| File classification   | 8 file snippets (300 chars each) per LLM call                        |
-| Route/schema analysis | 3 chunks per LLM call                                                |
-| Component docs        | First chunk only (enough for signatures)                             |
-| Security LLM scan     | Max 8 high-risk files, first chunk only                              |
-| File filtering        | Binaries, lock files, node_modules skipped entirely                  |
-| Parallel execution    | Agents 2, 3, 4, 6 run simultaneously — 60–70% time saving            |
-| Chat context          | Smart section selector — sends only relevant doc section per turn    |
-| Chat history          | Ring buffer, max 6 turns — coherent conversation without token bloat |
 
 ---
 
@@ -394,26 +508,84 @@ The entire pipeline is designed to stay within Groq's free tier limits while han
 ```
 project-documentor/
 ├── src/
-│   ├── agents/
-│   │   ├── repoScannerAgent.js       # Agent 1 — file classification + tech stack
-│   │   ├── apiExtractorAgent.js      # Agent 2 — route/endpoint extraction
-│   │   ├── schemaAnalyserAgent.js    # Agent 3 — models, DB schema, relationships
-│   │   ├── componentMapperAgent.js   # Agent 4 — services, middleware, utilities
-│   │   ├── docWriterAgent.js         # Agent 5 — README + internal docs generation
-│   │   └── securityAuditorAgent.js   # Agent 6 — static + LLM security scan
-│   ├── services/
-│   │   ├── orchestrator.js           # Pipeline coordinator — wires all agents
-│   │   ├── githubService.js          # GitHub API — fetch tree + file contents
-│   │   ├── chatService.js            # Chat with codebase — context + history
-│   │   ├── exportService.js          # PDF (pdfkit) + Notion export
-│   │   └── webhookService.js         # GitHub webhook + Actions workflow generator
+│   ├── server.js                    # Entry point — Express app + startup
+│   │
+│   ├── api/
+│   │   ├── router.js                # Mounts all 4 feature routers
+│   │   ├── legacy.router.js         # /api/* backward-compatible routes
+│   │   ├── auth/
+│   │   │   ├── auth.routes.js
+│   │   │   ├── auth.controller.js
+│   │   │   └── auth.service.js
+│   │   ├── github/
+│   │   │   ├── github.routes.js
+│   │   │   ├── github.controller.js
+│   │   │   └── github.service.js
+│   │   └── projects/
+│   │       ├── project.routes.js
+│   │       ├── project.controller.js
+│   │       └── project.service.js
+│   │
+│   ├── middleware/
+│   │   ├── auth.middleware.js        # protect + optionalAuth
+│   │   ├── validate.middleware.js    # express-validator rules + validate()
+│   │   └── rateLimiter.middleware.js # authLimiter, signupLimiter, apiLimiter
+│   │
+│   ├── models/
+│   │   ├── User.js                  # Auth state, bcrypt password, refresh token hash
+│   │   ├── GitHubToken.js           # Encrypted OAuth token per user
+│   │   └── Project.js               # Pipeline state, output, events, security findings
+│   │
 │   ├── config/
-│   │   └── llm.js                    # Groq client — all agents call through here
-│   └── utils/
-│       └── tokenManager.js           # Chunking, batching, file relevance scoring
+│   │   ├── db.js                    # Mongoose connection (lazy env read)
+│   │   └── email.js                 # Nodemailer transporter (dev console fallback)
+│   │
+│   ├── utils/
+│   │   ├── jwt.util.js              # signAccessToken, signRefreshToken, verify*
+│   │   ├── crypto.util.js           # AES-256-GCM encrypt/decrypt, hashToken
+│   │   ├── response.util.js         # ok(), fail(), serverError(), wrap()
+│   │   └── tokenManager.js          # Chunking, batching, file relevance scoring
+│   │
+│   ├── services/
+│   │   ├── jobRegistry.js           # Shared in-memory SSE job state
+│   │   ├── orchestrator.js          # Pipeline coordinator — wires 6 agents
+│   │   ├── githubService.js         # GitHub API — fetch repo files
+│   │   ├── chatService.js           # Chat with codebase — context + history
+│   │   ├── exportService.js         # PDF (pdfkit) + Notion export
+│   │   └── webhookService.js        # Webhook handler + Actions YAML generator
+│   │
+│   ├── agents/
+│   │   ├── repoScannerAgent.js      # Agent 1 — file classification + tech stack
+│   │   ├── apiExtractorAgent.js     # Agent 2 — route/endpoint extraction
+│   │   ├── schemaAnalyserAgent.js   # Agent 3 — models, DB schema, relationships
+│   │   ├── componentMapperAgent.js  # Agent 4 — services, middleware, utilities
+│   │   ├── docWriterAgent.js        # Agent 5 — README + internal docs
+│   │   └── securityAuditorAgent.js  # Agent 6 — static + LLM security scan
+│   │
+│   └── index.js                     # Standalone v2 server (untouched, fully operational)
+│
 ├── public/
-│   └── index.html                    # Full SPA — dashboard, chat, security panel
-├── .env.example
+│   └── index.html                   # SPA frontend
+│
+├── .env.example                     # All variables documented with examples
+├── .gitignore
 ├── package.json
 └── README.md
 ```
+
+---
+
+## Security Design
+
+| Concern                   | Implementation                                                                             |
+| ------------------------- | ------------------------------------------------------------------------------------------ |
+| Password storage          | bcrypt, cost factor 12                                                                     |
+| Access tokens             | JWT, 15-min TTL, `JWT_ACCESS_SECRET`                                                       |
+| Refresh tokens            | JWT, 7-day TTL, `JWT_REFRESH_SECRET`, stored as SHA-256 hash in DB, httpOnly Secure cookie |
+| Refresh token rotation    | Every use invalidates the previous token; replay attempts force full re-login              |
+| Email verification tokens | Raw token in email, SHA-256 hash in DB, 24-hour expiry                                     |
+| Password reset tokens     | Raw token in email, SHA-256 hash in DB, 1-hour expiry                                      |
+| GitHub OAuth tokens       | AES-256-GCM encrypted at rest with `ENCRYPTION_KEY`                                        |
+| Email enumeration         | `forgot-password` always returns 200 regardless of whether the email exists                |
+| Webhook validation        | HMAC-SHA256 with `timingSafeEqual` — prevents both forged requests and timing attacks      |
+| Rate limiting             | Auth: 10 req/15 min; Signup: 20 req/hr; API: 300 req/5 min                                 |

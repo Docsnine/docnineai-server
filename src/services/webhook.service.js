@@ -1,4 +1,3 @@
-// src/services/webhookService.js
 // ─────────────────────────────────────────────────────────────
 // Webhook Auto-Sync Service
 // ─────────────────────────────────────────────────────────────
@@ -10,7 +9,7 @@
 // ─────────────────────────────────────────────────────────────
 
 import crypto from "crypto";
-import { orchestrate } from "./orchestrator.js";
+import { orchestrate } from "./orchestrator.service.js";
 
 // ── Signature validation ──────────────────────────────────────
 export function validateWebhookSignature(payload, signature, secret) {
@@ -23,7 +22,10 @@ export function validateWebhookSignature(payload, signature, secret) {
     .update(payload)
     .digest("hex")}`;
   try {
-    return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+    return crypto.timingSafeEqual(
+      Buffer.from(signature),
+      Buffer.from(expected),
+    );
   } catch {
     return false;
   }
@@ -41,11 +43,12 @@ export function shouldReDociument(pushPayload) {
   }
 
   // Check if any meaningful code files changed
-  const CODE_FILE = /\.(js|ts|jsx|tsx|py|go|rs|java|rb|php|cs|cpp|c|h|vue|svelte|prisma|graphql|sql)$/i;
+  const CODE_FILE =
+    /\.(js|ts|jsx|tsx|py|go|rs|java|rb|php|cs|cpp|c|h|vue|svelte|prisma|graphql|sql)$/i;
   const changedFiles = commits.flatMap((c) => [
-    ...(c.added    || []),
+    ...(c.added || []),
     ...(c.modified || []),
-    ...(c.removed  || []),
+    ...(c.removed || []),
   ]);
 
   const codeChanges = changedFiles.filter((f) => CODE_FILE.test(f));
@@ -55,19 +58,26 @@ export function shouldReDociument(pushPayload) {
   }
 
   return {
-    should      : true,
-    reason      : "code_changed",
+    should: true,
+    reason: "code_changed",
     changedFiles: codeChanges.slice(0, 10),
-    repoUrl     : repository?.html_url,
-    pusher      : pushPayload.pusher?.name,
-    branch      : defaultBranch,
+    repoUrl: repository?.html_url,
+    pusher: pushPayload.pusher?.name,
+    branch: defaultBranch,
   };
 }
 
 // ── Handle incoming webhook ───────────────────────────────────
-export async function handleWebhook({ payload, signature, secret, jobs, streams }) {
+export async function handleWebhook({
+  payload,
+  signature,
+  secret,
+  jobs,
+  streams,
+}) {
   // Validate signature
-  const rawPayload = typeof payload === "string" ? payload : JSON.stringify(payload);
+  const rawPayload =
+    typeof payload === "string" ? payload : JSON.stringify(payload);
   if (!validateWebhookSignature(rawPayload, signature, secret)) {
     return { status: 401, body: { error: "Invalid webhook signature" } };
   }
@@ -80,11 +90,18 @@ export async function handleWebhook({ payload, signature, secret, jobs, streams 
     return { status: 200, body: { message: `Skipped: ${check.reason}` } };
   }
 
-  console.log(`🔄 Webhook triggered re-doc for ${check.repoUrl} by ${check.pusher}`);
+  console.log(
+    `🔄 Webhook triggered re-doc for ${check.repoUrl} by ${check.pusher}`,
+  );
 
   // Trigger orchestration (same as manual submit)
   const jobId = crypto.randomUUID();
-  jobs.set(jobId, { status: "running", events: [], result: null, triggeredBy: "webhook" });
+  jobs.set(jobId, {
+    status: "running",
+    events: [],
+    result: null,
+    triggeredBy: "webhook",
+  });
   streams.set(jobId, []);
 
   orchestrate(check.repoUrl, (event) => {
@@ -92,12 +109,19 @@ export async function handleWebhook({ payload, signature, secret, jobs, streams 
     if (job) job.events.push(event);
   }).then((result) => {
     const job = jobs.get(jobId);
-    if (job) { job.status = result.success ? "done" : "error"; job.result = result; }
+    if (job) {
+      job.status = result.success ? "done" : "error";
+      job.result = result;
+    }
   });
 
   return {
     status: 202,
-    body  : { message: "Re-documentation triggered", jobId, repoUrl: check.repoUrl },
+    body: {
+      message: "Re-documentation triggered",
+      jobId,
+      repoUrl: check.repoUrl,
+    },
   };
 }
 
