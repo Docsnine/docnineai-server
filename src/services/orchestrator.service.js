@@ -1,12 +1,11 @@
-// src/services/orchestrator.js — v3 with granular progress events
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // Progress event schema:
 //   { step, status: "running"|"done"|"error"|"waiting",
 //     msg, detail, ts }
 //
 // Every agent receives an `emit` callback so it can broadcast
 // its own sub-step messages (batch N/M, throttle waits, etc.)
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 
 import { fetchRepoFiles, fetchRepoFilesWithProgress } from "./githubService.js";
 import { repoScannerAgent } from "../agents/repo-scanner.agent.js";

@@ -1,4 +1,4 @@
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // GitHub OAuth flow and repository access.
 //
 // WHY no module-level env var constants:
@@ -12,7 +12,7 @@
 //   GITHUB_REDIRECT_URI   — must match what's registered on GitHub
 //                           e.g. http://localhost:3000/github/oauth/callback
 //   JWT_ACCESS_SECRET     — reused as OAuth state JWT secret (10-min expiry)
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 
 import jwt from "jsonwebtoken";
 import axios from "axios";

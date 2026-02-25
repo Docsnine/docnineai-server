@@ -1,5 +1,4 @@
-// src/utils/response.util.js
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // Single source of truth for every HTTP response in the API.
 //
 // Success:  { success: true,  data: {...}, message: "..." }
@@ -9,7 +8,7 @@
 //   ok(res, data, "Created", 201)
 //   fail(res, "EMAIL_TAKEN", "Email is already registered", 409)
 //   serverError(res, err)          ← catches + logs unexpected throws
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 
 /**
  * 2xx success

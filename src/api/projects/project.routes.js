@@ -1,5 +1,4 @@
-// src/api/projects/project.routes.js
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // All project routes require authentication + API rate limiting.
 //
 // Full route map:
@@ -20,7 +19,7 @@
 //   Never compose mongoId + body-rule validate in a single spread —
 //   that would fire validate() twice and short-circuit on param errors
 //   before body rules run.
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 
 import { Router } from "express";
 import { param } from "express-validator";

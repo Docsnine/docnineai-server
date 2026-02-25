@@ -1,5 +1,4 @@
-// src/api/github/github.routes.js
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // Route ordering is critical here:
 //
 //   /oauth/callback — PUBLIC, no Bearer token.
@@ -8,7 +7,7 @@
 //     Must come BEFORE router.use(protect) or it will 401.
 //
 //   All other routes — require valid Bearer access token + API rate limit.
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 
 import { Router } from "express";
 import * as ctrl from "./github.controller.js";

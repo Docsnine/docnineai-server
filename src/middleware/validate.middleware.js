@@ -1,5 +1,4 @@
-// src/middleware/validate.middleware.js
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // Thin validation layer using express-validator.
 // Returns a consistent 422 response with field-level error detail.
 //
@@ -13,7 +12,7 @@
 //   defined in project.routes.js.
 //   Never include a param("id") rule inside a rules.* body rule set —
 //   it will conflict with the id validation done at the router level.
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 
 import { body, query, param, validationResult } from "express-validator";
 

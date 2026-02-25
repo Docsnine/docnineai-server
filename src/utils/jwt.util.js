@@ -1,5 +1,4 @@
-// src/utils/jwt.util.js
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // Two-token strategy:
 //   Access token  — 15 min, signed with JWT_ACCESS_SECRET
 //                   sent in response body, stored in memory by client
@@ -17,7 +16,7 @@
 // Required env:
 //   JWT_ACCESS_SECRET   — 32+ random chars
 //   JWT_REFRESH_SECRET  — 32+ random chars (different from access)
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 
 import jwt from "jsonwebtoken";
 

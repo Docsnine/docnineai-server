@@ -1,4 +1,6 @@
-// src/agents/apiExtractorAgent.js — Agent 2: API Extractor
+// ===================================================================
+// Agent 2: API Extractor
+// ===================================================================
 
 import { llmCall } from "../config/llm.js";
 

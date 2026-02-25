@@ -1,5 +1,4 @@
-// src/config/db.js
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // Mongoose connection — connect once, reuse everywhere.
 //
 // FIX: MONGODB_URI check is now INSIDE connectDB(), not at module
@@ -12,7 +11,7 @@
 //   MONGODB_URI — full connection string
 //   e.g. mongodb://localhost:27017/project-documentor
 //   e.g. mongodb+srv://user:pass@cluster.mongodb.net/project-documentor
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 
 import mongoose from "mongoose";
 

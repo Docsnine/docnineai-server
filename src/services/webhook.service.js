@@ -1,12 +1,12 @@
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // Webhook Auto-Sync Service
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // Features:
 //   • Validates GitHub webhook HMAC-SHA256 signatures
 //   • Only re-runs docs on push to default branch (main/master)
 //   • Generates .github/workflows/document.yml for self-hosted sync
 //   • Smart diff check: skip if only non-code files changed
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 
 import crypto from "crypto";
 import { orchestrate } from "./orchestrator.service.js";

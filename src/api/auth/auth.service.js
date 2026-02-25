@@ -1,8 +1,7 @@
-// src/api/auth/auth.service.js
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // All auth business logic lives here. Controllers call these
 // functions — they never touch the database directly.
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 
 import { User } from "../../models/User.js";
 import {

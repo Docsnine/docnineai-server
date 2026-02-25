@@ -1,11 +1,10 @@
-// src/middleware/auth.middleware.js
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // Protect routes by verifying the Bearer access token.
 // Attaches req.user = { userId, email } on success.
 //
 // The verifyAccessToken function reads JWT_ACCESS_SECRET lazily
 // (inside the function), so there is no module-load dotenv race.
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 
 import { verifyAccessToken } from "../utils/jwt.util.js";
 import { fail } from "../utils/response.util.js";

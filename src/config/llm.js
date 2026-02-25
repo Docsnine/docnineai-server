@@ -1,6 +1,6 @@
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // Global LLM Rate-Limited Queue
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // Problem: 4 agents running in parallel all share one 6,000 TPM
 // bucket. They fire independently → instant rate limit storm.
 //
@@ -10,7 +10,7 @@
 //   • If next call would exceed TPM_LIMIT → wait until window clears
 //   • Each call estimates its own token cost upfront
 //   • Result: smooth, predictable throughput, zero retry storms
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 
 import OpenAI from "openai";
 import dotenv from "dotenv";

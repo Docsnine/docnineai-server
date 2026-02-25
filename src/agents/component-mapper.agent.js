@@ -1,4 +1,6 @@
-// src/agents/componentMapperAgent.js — Agent 4: Component Mapper
+// ===================================================================
+// Agent 4: Component Mapper
+// ===================================================================
 
 import { llmCall } from "../config/llm.js";
 

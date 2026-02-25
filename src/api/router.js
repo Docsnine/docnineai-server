@@ -1,6 +1,5 @@
-// src/api/router.js
-// ─────────────────────────────────────────────────────────────
-// Central API router — single import for server.js.
+// ===================================================================
+// Central API router
 //
 // Route map:
 //   /auth          — authentication & session management
@@ -8,7 +7,7 @@
 //   /projects      — project CRUD + pipeline + SSE stream + exports
 //   /api           — legacy pipeline routes (backward-compatible)
 //                    unchanged from v2; uses shared jobRegistry
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 
 import { Router } from "express";
 import authRoutes from "./auth/auth.routes.js";
@@ -21,6 +20,8 @@ const router = Router();
 router.use("/auth", authRoutes);
 router.use("/github", githubRoutes);
 router.use("/projects", projectRoutes);
-router.use("/api", legacyRoutes); // backward-compatible legacy API
+
+// backward-compatible legacy API
+router.use("/api", legacyRoutes);
 
 export default router;

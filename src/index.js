@@ -1,17 +1,21 @@
 // src/index.js — Project Documentor v2 — SaaS Edition
-import express   from "express";
-import cors      from "cors";
-import morgan    from "morgan";
+import express from "express";
+import cors from "cors";
+import morgan from "morgan";
 import { randomUUID } from "crypto";
-import dotenv    from "dotenv";
+import dotenv from "dotenv";
+
 dotenv.config();
 
-import { orchestrate }          from "./services/orchestrator.service.js";
-import { chat }                 from "./services/chatService.js";
+import { orchestrate } from "./services/orchestrator.service.js";
+import { chat } from "./services/chatService.js";
 import { exportToPDF, exportToNotion } from "./services/exportService.js";
-import { handleWebhook, generateGitHubActionsWorkflow } from "./services/webhook.service.js";
+import {
+  handleWebhook,
+  generateGitHubActionsWorkflow,
+} from "./services/webhook.service.js";
 
-const app  = express();
+const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
@@ -23,11 +27,13 @@ app.use("/api/webhook", express.raw({ type: "application/json" }));
 app.use(express.json());
 
 // ── In-memory job store ───────────────────────────────────────
-const jobs    = new Map(); // jobId → { status, result, events[] }
+const jobs = new Map(); // jobId → { status, result, events[] }
 const streams = new Map(); // jobId → [res, ...]
 
 // ── Health ────────────────────────────────────────────────────
-app.get("/health", (_, res) => res.json({ status: "ok", version: "2.0", uptime: process.uptime() }));
+app.get("/health", (_, res) =>
+  res.json({ status: "ok", version: "2.0", uptime: process.uptime() }),
+);
 
 // ── POST /api/document — start pipeline ───────────────────────
 app.post("/api/document", async (req, res) => {
@@ -40,7 +46,9 @@ app.post("/api/document", async (req, res) => {
   jobs.set(jobId, { status: "running", events: [], result: null });
   streams.set(jobId, []);
 
-  res.status(202).json({ jobId, status: "running", streamUrl: `/api/stream/${jobId}` });
+  res
+    .status(202)
+    .json({ jobId, status: "running", streamUrl: `/api/stream/${jobId}` });
 
   // Run pipeline async
   orchestrate(repoUrl, (event) => {
@@ -48,12 +56,24 @@ app.post("/api/document", async (req, res) => {
     if (!job) return;
     job.events.push(event);
     const data = `data: ${JSON.stringify(event)}\n\n`;
-    (streams.get(jobId) || []).forEach((client) => { try { client.write(data); } catch {} });
+    (streams.get(jobId) || []).forEach((client) => {
+      try {
+        client.write(data);
+      } catch {}
+    });
   }).then((result) => {
     const job = jobs.get(jobId);
-    if (job) { job.status = result.success ? "done" : "error"; job.result = result; }
+    if (job) {
+      job.status = result.success ? "done" : "error";
+      job.result = result;
+    }
     const doneData = `data: ${JSON.stringify({ step: "done", result })}\n\n`;
-    (streams.get(jobId) || []).forEach((c) => { try { c.write(doneData); c.end(); } catch {} });
+    (streams.get(jobId) || []).forEach((c) => {
+      try {
+        c.write(doneData);
+        c.end();
+      } catch {}
+    });
     streams.delete(jobId);
   });
 });
@@ -71,15 +91,17 @@ app.get("/api/stream/:jobId", (req, res) => {
   const job = jobs.get(jobId);
   if (!job) return res.status(404).json({ error: "Job not found" });
 
-  res.setHeader("Content-Type",  "text/event-stream");
+  res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection",    "keep-alive");
+  res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
 
   job.events.forEach((e) => res.write(`data: ${JSON.stringify(e)}\n\n`));
 
   if (job.status !== "running") {
-    res.write(`data: ${JSON.stringify({ step: "done", result: job.result })}\n\n`);
+    res.write(
+      `data: ${JSON.stringify({ step: "done", result: job.result })}\n\n`,
+    );
     return res.end();
   }
 
@@ -87,7 +109,10 @@ app.get("/api/stream/:jobId", (req, res) => {
   clients.push(res);
   streams.set(jobId, clients);
   req.on("close", () => {
-    streams.set(jobId, (streams.get(jobId) || []).filter((c) => c !== res));
+    streams.set(
+      jobId,
+      (streams.get(jobId) || []).filter((c) => c !== res),
+    );
   });
 });
 
@@ -108,7 +133,8 @@ app.post("/api/chat", async (req, res) => {
 // ── GET /api/export/pdf/:jobId — download PDF ────────────────
 app.get("/api/export/pdf/:jobId", (req, res) => {
   const job = jobs.get(req.params.jobId);
-  if (!job?.result?.success) return res.status(404).json({ error: "Job not ready" });
+  if (!job?.result?.success)
+    return res.status(404).json({ error: "Job not ready" });
   const { meta, output, stats, security } = job.result;
   exportToPDF(res, { meta, output, stats, securityScore: security?.score });
 });
@@ -116,10 +142,16 @@ app.get("/api/export/pdf/:jobId", (req, res) => {
 // ── POST /api/export/notion/:jobId — push to Notion ──────────
 app.post("/api/export/notion/:jobId", async (req, res) => {
   const job = jobs.get(req.params.jobId);
-  if (!job?.result?.success) return res.status(404).json({ error: "Job not ready" });
+  if (!job?.result?.success)
+    return res.status(404).json({ error: "Job not ready" });
   try {
     const { meta, output, stats, security } = job.result;
-    const result = await exportToNotion({ output, meta, stats, securityScore: security?.score });
+    const result = await exportToNotion({
+      output,
+      meta,
+      stats,
+      securityScore: security?.score,
+    });
     res.json({ success: true, ...result });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -129,8 +161,8 @@ app.post("/api/export/notion/:jobId", async (req, res) => {
 // ── GET /api/export/workflow/:jobId — download GH Actions yml ─
 app.get("/api/export/workflow/:jobId", (req, res) => {
   const host = `${req.protocol}://${req.get("host")}`;
-  const yml  = generateGitHubActionsWorkflow(host);
-  res.setHeader("Content-Type",        "text/yaml");
+  const yml = generateGitHubActionsWorkflow(host);
+  res.setHeader("Content-Type", "text/yaml");
   res.setHeader("Content-Disposition", "attachment; filename=document.yml");
   res.send(yml);
 });
@@ -139,10 +171,11 @@ app.get("/api/export/workflow/:jobId", (req, res) => {
 app.post("/api/webhook", async (req, res) => {
   const signature = req.headers["x-hub-signature-256"] || "";
   const result = await handleWebhook({
-    payload  : req.body,
+    payload: req.body,
     signature,
-    secret   : process.env.WEBHOOK_SECRET,
-    jobs, streams,
+    secret: process.env.WEBHOOK_SECRET,
+    jobs,
+    streams,
   });
   res.status(result.status).json(result.body);
 });

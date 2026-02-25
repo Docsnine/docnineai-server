@@ -1,5 +1,4 @@
-// src/server.js
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // Project Documentor v3 — unified entry point
 //
 // Route map:
@@ -8,16 +7,19 @@
 //   /projects/*  — project CRUD + pipeline + SSE + exports
 //   /api/*       — legacy unauthenticated pipeline (v2 compatible)
 //   /health      — liveness probe
-//
+
+// ===================================================================
 // src/index.js is intentionally untouched.
 // Run it standalone with `npm run start:legacy` if needed.
-//
+// ===================================================================
+
+// ===================================================================
 // WHY import "dotenv/config" first:
 //   In ESM all imports are hoisted and evaluated before the module
 //   body runs. Placing `import "dotenv/config"` as the very first
 //   statement guarantees .env is populated before any other module
 //   reads process.env — including jwt.util.js, crypto.util.js, etc.
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 
 import "dotenv/config"; // MUST be first import — populates process.env from .env
 

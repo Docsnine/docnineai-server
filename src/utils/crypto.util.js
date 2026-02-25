@@ -1,5 +1,4 @@
-// src/utils/crypto.util.js
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // AES-256-GCM authenticated encryption for secrets stored in MongoDB.
 // Used to encrypt GitHub OAuth access tokens before persistence.
 //
@@ -13,7 +12,7 @@
 // Required env:
 //   ENCRYPTION_KEY — exactly 64 hex characters (= 32 bytes)
 //   Generate: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 
 import {
   randomBytes,

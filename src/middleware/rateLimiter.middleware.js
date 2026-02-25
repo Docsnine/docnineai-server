@@ -1,11 +1,10 @@
-// src/middleware/rateLimiter.middleware.js
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // Purpose-built rate limiters for sensitive routes.
 // Uses express-rate-limit (already in package.json).
 //
 // Separate limiters per route category so one doesn't pollute another.
 // All return consistent JSON on block (no HTML).
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 
 import rateLimit from "express-rate-limit";
 

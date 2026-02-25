@@ -1,10 +1,9 @@
-// src/api/auth/auth.routes.js
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // Auth router — mounted at /auth in server.js
 //
 // Middleware chain per route:
 //   [rateLimiter?] → [validation rules] → validate → controller
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 
 import { Router } from "express";
 import * as ctrl from "./auth.controller.js";

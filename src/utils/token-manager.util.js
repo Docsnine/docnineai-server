@@ -1,10 +1,9 @@
-// src/utils/tokenManager.js
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // Token & Context Management Strategy
 //   • Chunk size : 300–500 tokens per LLM request
 //   • Batching   : process BATCH_SIZE chunks per request
 //   • Files are filtered and sorted by relevance before chunking
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 
 const CHUNK_SIZE  = parseInt(process.env.CHUNK_SIZE  || "400");
 const BATCH_SIZE  = parseInt(process.env.BATCH_SIZE  || "5");

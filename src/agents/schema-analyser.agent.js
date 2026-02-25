@@ -1,4 +1,6 @@
-// src/agents/schemaAnalyserAgent.js — Agent 3: Schema Analyser
+// =================================================================== 
+// Agent 3: Schema Analyser
+// ===================================================================
 
 import { llmCall } from "../config/llm.js";
 

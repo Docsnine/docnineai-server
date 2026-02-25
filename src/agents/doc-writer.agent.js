@@ -1,4 +1,6 @@
-// src/agents/docWriterAgent.js — Agent 5: Doc Writer
+// ===================================================================
+// Agent 5: Doc Writer
+// ===================================================================
 
 import { llmCall } from "../config/llm.js";
 

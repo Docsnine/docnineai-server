@@ -1,7 +1,9 @@
-// src/agents/securityAuditorAgent.js — Agent 6: Security Auditor
+// ===================================================================
+// Agent 6: Security Auditor
+// ===================================================================
 
 import { llmCall } from "../config/llm.js";
-import { chunkText } from "../utils/tokenManager.js";
+import { chunkText } from "../utils/token-manager.util.js";
 
 const STATIC_RULES = [
   {

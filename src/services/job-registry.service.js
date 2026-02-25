@@ -1,12 +1,11 @@
-// src/services/jobRegistry.js
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // Shared in-memory job store — single source of truth for
 // pipeline job state and active SSE client connections.
 //
 // Both the legacy /api/document route (index.js) and the new
 // project service import from here. This is the ONLY file that
 // needs to change if you later switch to Redis pub/sub.
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 
 /**
  * jobs Map — jobId → { status, events[], result }

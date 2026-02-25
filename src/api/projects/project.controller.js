@@ -1,18 +1,15 @@
-// src/api/projects/project.controller.js
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // Thin controllers — parse request, call service, send response.
 // Export handlers are also here: they reconstruct export data from
 // MongoDB so they work after server restarts (not just while the
 // in-memory job exists).
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 
 import * as projectService from "./project.service.js";
 import { ok, fail, serverError } from "../../utils/response.util.js";
 import { jobs, streams } from "../../services/jobRegistry.js";
 
 // ── Lazy-load export services ────────────────────────────────
-// These are optional — PDF needs pdfkit, Notion needs @notionhq/client.
-// Lazy loading means a missing optional dep won't crash the server.
 let _exportToPDF = null;
 let _exportToNotion = null;
 let _genWorkflow = null;
@@ -167,6 +164,7 @@ export async function streamProject(req, res) {
   const projectId = req.params.id;
 
   let project;
+  
   try {
     project = await projectService.getProjectById({
       projectId,

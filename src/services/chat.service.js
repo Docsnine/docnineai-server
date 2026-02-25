@@ -1,13 +1,13 @@
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // Chat With Your Codebase Service
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // Strategy:
 //   • Docs (README + API + Schema + Internal) = permanent context
 //   • Conversation history kept per session (in-memory, ring buffer)
 //   • Smart context injection: only include relevant doc sections
 //     based on question keywords (saves tokens on each turn)
 //   • Max history: 6 turns (3 user + 3 assistant) to stay in budget
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 
 const MAX_HISTORY_TURNS = 6;
 const MAX_CONTEXT_CHARS = 3000; // ~750 tokens of doc context per message

@@ -1,8 +1,7 @@
-// src/api/auth/auth.controller.js
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // Controllers are thin: call service → format response.
 // All business logic lives in auth.service.js.
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 
 import * as authService from "./auth.service.js";
 import { ok, fail, serverError } from "../../utils/response.util.js";

@@ -1,11 +1,10 @@
-// src/models/GitHubToken.js
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // Stores GitHub OAuth tokens for a user.
 // One document per user — upserted on each OAuth callback.
 //
 // Security: accessToken is AES-256-GCM encrypted before storage.
 // The decrypt() call happens in github.service.js — never here.
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 
 import mongoose from "mongoose";
 

@@ -1,5 +1,4 @@
-// src/models/User.js
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // User model — stores all auth-related state.
 //
 // Security notes:
@@ -9,7 +8,7 @@
 //   • emailVerificationToken — SHA-256 hash of the raw token sent in email
 //   • passwordResetToken     — SHA-256 hash of the raw token sent in email
 //   All *Token fields store hashes. Raw values are only in transit.
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";

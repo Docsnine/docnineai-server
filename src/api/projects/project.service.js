@@ -1,5 +1,4 @@
-// src/api/projects/project.service.js
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // Project management — full CRUD + pipeline orchestration.
 //
 // Project lifecycle:
@@ -12,7 +11,7 @@
 //     - every onProgress event is appended to Project.events (last 200)
 //     - final result is persisted to Project document on completion
 //     - finishJob / failJob close SSE connections via jobRegistry
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 
 import { randomUUID } from "crypto";
 import { Project } from "../../models/Project.js";
@@ -92,6 +91,7 @@ export async function createProject({ userId, repoUrl }) {
     repoName,
     status: { $in: ["queued", "running"] },
   });
+
   if (active) {
     const err = new Error(
       `A pipeline for ${owner}/${repoName} is already in progress.`,

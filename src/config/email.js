@@ -1,5 +1,4 @@
-// src/config/email.js
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // Nodemailer transporter — configure via SMTP env vars.
 // Falls back gracefully so the server starts even without email config.
 //
@@ -12,7 +11,7 @@
 //   APP_URL       — public URL, e.g. https://yourdomain.com (for links in emails)
 //
 // Without SMTP config: emails are logged to console (dev mode).
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 
 import nodemailer from "nodemailer";
 

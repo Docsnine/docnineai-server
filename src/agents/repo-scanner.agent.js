@@ -1,7 +1,9 @@
-// src/agents/repoScannerAgent.js — Agent 1: Repo Scanner
+// ===================================================================
+// Agent 1: Repo Scanner 
+// ===================================================================
 
 import { llmCall } from "../config/llm.js";
-import { sortAndFilterFiles } from "../utils/tokenManager.js";
+import { sortAndFilterFiles } from "../utils/token-manager.util.js";
 
 const SYSTEM_PROMPT = `You are a senior software architect performing a codebase audit.
 Given a batch of file paths and snippets, classify each file into one of:

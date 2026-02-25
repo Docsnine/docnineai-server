@@ -1,7 +1,6 @@
-// src/api/github/github.controller.js
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // Thin HTTP layer — calls github.service.js, formats responses.
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 
 import * as githubService from "./github.service.js";
 import { ok, fail, serverError } from "../../utils/response.util.js";

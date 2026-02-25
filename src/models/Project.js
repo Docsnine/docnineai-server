@@ -1,12 +1,11 @@
-// src/models/Project.js
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // Represents one documentation run for a GitHub repository.
 // Lifecycle: queued → running → done | error → (archived)
 //
 // The jobId field is the UUID used by the SSE job registry,
 // making it trivial to wire MongoDB persistence to the existing
 // /api/stream/:jobId endpoint without any changes to that code.
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 
 import mongoose from "mongoose";
 

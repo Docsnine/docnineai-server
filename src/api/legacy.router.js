@@ -1,5 +1,4 @@
-// src/api/legacy.router.js
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 // Backward-compatible /api/* pipeline routes.
 // Mounted at /api in src/api/router.js.
 //
@@ -13,7 +12,7 @@
 //   src/index.js is left completely untouched.
 //
 // Services status is exported for the /health endpoint.
-// ─────────────────────────────────────────────────────────────
+// ===================================================================
 
 import { Router } from "express";
 import { randomUUID } from "crypto";
