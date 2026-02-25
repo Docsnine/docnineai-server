@@ -20,7 +20,7 @@ import {
   pushEvent,
   finishJob,
   failJob,
-} from "../../services/jobRegistry.js";
+} from "../../services/job-registry.service.js";
 
 // ── Lazy orchestrate loader ───────────────────────────────────
 // Mirrors the pattern in index.js — lets the server start even if

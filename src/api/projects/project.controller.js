@@ -7,7 +7,7 @@
 
 import * as projectService from "./project.service.js";
 import { ok, fail, serverError } from "../../utils/response.util.js";
-import { jobs, streams } from "../../services/jobRegistry.js";
+import { jobs, streams } from "../../services/job-registry.service.js";
 
 // ── Lazy-load export services ────────────────────────────────
 let _exportToPDF = null;
@@ -17,10 +17,11 @@ let _genWorkflow = null;
 async function getExportToPDF() {
   if (_exportToPDF) return _exportToPDF;
   try {
-    const m = await import("../../services/exportService.js");
+    const m = await import("../../services/export.service.js");
     _exportToPDF = m.exportToPDF;
     return _exportToPDF;
-  } catch {
+  } catch (err) {
+    console.warn("Failed to load exportToPDF:", err.message);
     return null;
   }
 }
@@ -164,7 +165,7 @@ export async function streamProject(req, res) {
   const projectId = req.params.id;
 
   let project;
-  
+
   try {
     project = await projectService.getProjectById({
       projectId,

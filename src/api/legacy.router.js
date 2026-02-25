@@ -23,7 +23,7 @@ import {
   pushEvent,
   finishJob,
   failJob,
-} from "../services/jobRegistry.js";
+} from "../services/job-registry.service.js";
 
 const router = Router();
 
