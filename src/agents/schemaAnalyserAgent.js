@@ -2,95 +2,111 @@
 // ─────────────────────────────────────────────────────────────
 // AGENT 3 — Schema Analyser
 // ─────────────────────────────────────────────────────────────
-// Skill : Identify models, schemas, DB tables, and relationships
-// Input : { files, projectMap }
-// Output: { models[], relationships[] }
+// BATCHING STRATEGY:
+//   Old: 1 file → 1 LLM call = 63 calls for 63 schema files
+//   New: 3 files → 1 LLM call = ~7 calls for 20 schema files
+//
+//   Each file contributes its first 250 chars (field definitions
+//   are at the top of model files — we don't need the whole file)
+//   3 files × 250 chars = ~750 chars = ~215 tokens per batch
+//   Well within budget, and captures all field definitions.
 // ─────────────────────────────────────────────────────────────
 
 import { llmCall } from "../config/llm.js";
-import { chunkText, batchChunks, formatBatch } from "../utils/tokenManager.js";
 
-const MODEL_SYSTEM_PROMPT = `You are a database architect.
-Analyse the given source code and extract data models/schemas.
-Return ONLY valid JSON (no markdown):
+const SYSTEM_PROMPT = `You are a database architect.
+Analyse the given source files and extract all data models/schemas.
+Return ONLY valid JSON (no markdown, no explanation):
 {
   "models": [{
-    "name"       : "User",
-    "file"       : "models/user.js",
-    "fields"     : [{ "name": "email", "type": "String", "required": true, "unique": true }],
-    "description": "Represents an authenticated user"
+    "name": "User",
+    "file": "models/user.ts",
+    "fields": [{ "name": "email", "type": "String", "required": true, "unique": true }],
+    "description": "One sentence about this model"
   }],
   "relationships": [{
-    "from"   : "User",
-    "to"     : "Post",
-    "type"   : "one-to-many | many-to-many | one-to-one",
-    "through": "optional join table/model"
+    "from": "User", "to": "Post",
+    "type": "one-to-many | many-to-many | one-to-one",
+    "through": "optional join table/model name or null"
   }]
 }
 If nothing found, return { "models": [], "relationships": [] }.`;
 
+// Schema file detector patterns
+const SCHEMA_ROLES = new Set(["model", "schema", "migration"]);
+const SCHEMA_REGEX =
+  /mongoose\.Schema|new Schema\(|sequelize\.define|@Entity|@Table|@Column|prisma\.|TypeORM|class.*extends.*Model|SQLAlchemy|Base\.metadata|models\.Model|createTable|db\.Model|DataTypes\.|belongsTo|hasMany|hasOne|belongsToMany/i;
+const PATH_REGEX = /model|schema|entity|migration|database\/|db\//i;
+
+// How many files to pack into one LLM call
+const FILES_PER_BATCH = 3;
+// How many chars to take from each file (field defs are at the top)
+const CHARS_PER_FILE = 280;
+// Hard cap on total schema files to process
+const MAX_SCHEMA_FILES = 20;
+
 export async function schemaAnalyserAgent({ files, projectMap }) {
   console.log("🗄️  [Agent 3] SchemaAnalyser — mapping models & relationships…");
 
-  const SCHEMA_ROLES = new Set(["model", "schema", "migration"]);
-  // Broad pattern to catch any ORM/ODM definition style
-  const SCHEMA_REGEX =
-    /mongoose\.Schema|new Schema\(|sequelize\.define|@Entity|@Table|@Column|prisma\.|TypeORM|class.*extends.*Model|SQLAlchemy|Base\.metadata|models\.Model|createTable|db\.Model|DataTypes\.|belongsTo|hasMany|hasOne|belongsToMany/i;
-
-  const schemaFiles = files.filter((f) => {
-    const meta = projectMap.find((m) => m.path === f.path);
-    const roleMatch = meta && SCHEMA_ROLES.has(meta.role);
-    const contentMatch = SCHEMA_REGEX.test(f.content);
-    // Also catch files with "model" or "schema" or "entity" in their path
-    const pathMatch = /model|schema|entity|migration|database\/|db\//i.test(
-      f.path,
-    );
-    return roleMatch || contentMatch || pathMatch;
-  });
+  const schemaFiles = files
+    .filter((f) => {
+      const meta = projectMap.find((m) => m.path === f.path);
+      return (
+        (meta && SCHEMA_ROLES.has(meta.role)) ||
+        SCHEMA_REGEX.test(f.content) ||
+        PATH_REGEX.test(f.path)
+      );
+    })
+    .slice(0, MAX_SCHEMA_FILES);
 
   console.log(
-    `   ↳ Found ${schemaFiles.length} schema/model files (capped at 20)`,
+    `   ↳ ${schemaFiles.length} schema files → ${Math.ceil(schemaFiles.length / FILES_PER_BATCH)} batched LLM calls`,
   );
-  const cappedFiles = schemaFiles.slice(0, 20);
 
   const allModels = [];
   const allRelationships = [];
 
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // Group files into batches of FILES_PER_BATCH
+  for (let i = 0; i < schemaFiles.length; i += FILES_PER_BATCH) {
+    const batch = schemaFiles.slice(i, i + FILES_PER_BATCH);
 
-  for (const [fileIdx, file] of cappedFiles.entries()) {
-    const chunks = chunkText(file.content, 450);
-    const batches = batchChunks(chunks, 3);
+    // Pack multiple files into one prompt — separated clearly
+    const userContent = batch
+      .map(
+        (f) => `=== FILE: ${f.path} ===\n${f.content.slice(0, CHARS_PER_FILE)}`,
+      )
+      .join("\n\n");
 
-    for (const batch of batches) {
-      const userContent = `FILE: ${file.path}\n\n${formatBatch(batch)}`;
-      try {
-        const raw = await llmCall({
-          systemPrompt: MODEL_SYSTEM_PROMPT,
-          userContent,
-        });
-        const parsed = JSON.parse(raw);
-        if (parsed.models) allModels.push(...parsed.models);
-        if (parsed.relationships)
-          allRelationships.push(...parsed.relationships);
-      } catch {
-        // skip
-      }
-      // Throttle: ~300ms between calls keeps burst under 6000 TPM on free tier
-      if (fileIdx < cappedFiles.length - 1) await sleep(300);
+    try {
+      const raw = await llmCall({ systemPrompt: SYSTEM_PROMPT, userContent });
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed.models)) allModels.push(...parsed.models);
+      if (Array.isArray(parsed.relationships))
+        allRelationships.push(...parsed.relationships);
+    } catch {
+      // Batch had no schema content — skip
     }
   }
 
-  // Deduplicate models by name
+  // Deduplicate models by name (multiple files can define the same model)
   const seen = new Set();
   const models = allModels.filter((m) => {
-    if (seen.has(m.name)) return false;
+    if (!m.name || seen.has(m.name)) return false;
     seen.add(m.name);
     return true;
   });
 
+  // Deduplicate relationships
+  const relSeen = new Set();
+  const relationships = allRelationships.filter((r) => {
+    const key = `${r.from}→${r.to}`;
+    if (relSeen.has(key)) return false;
+    relSeen.add(key);
+    return true;
+  });
+
   console.log(
-    `   ✅ Found ${models.length} models, ${allRelationships.length} relationships`,
+    `   ✅ Found ${models.length} models, ${relationships.length} relationships`,
   );
-  return { models, relationships: allRelationships };
+  return { models, relationships };
 }
