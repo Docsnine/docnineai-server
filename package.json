@@ -1,7 +1,7 @@
 {
-  "name": "project-documentor",
+  "name": "docnine-server",
   "version": "3.0.0",
-  "description": "AI-powered GitHub documentation generator — SaaS platform with auth, projects, and live pipeline streaming",
+  "description": "AI-powered GitHub documentation generator",
   "main": "src/server.js",
   "type": "module",
   "engines": {
