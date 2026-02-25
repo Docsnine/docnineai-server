@@ -1,6 +1,6 @@
-# ⚡ Project Documentor
+# Docnine Documentation
 
-> **AI-powered GitHub documentation generator** — paste a repo URL, get professional docs in minutes.
+> **AI-powered GitHub documentation generator**
 
 ![Node.js](https://img.shields.io/badge/Node.js-20+-green)
 ![Groq](https://img.shields.io/badge/LLM-Groq%20llama--3.1--8b-orange)
@@ -11,7 +11,7 @@
 
 ## Table of Contents
 
-- [⚡ Project Documentor](#-project-documentor)
+- [Docnine Documentation](#docnine-documentation)
   - [Table of Contents](#table-of-contents)
   - [Features](#features)
   - [Architecture](#architecture)
