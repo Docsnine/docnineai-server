@@ -1,4 +1,4 @@
-# ⚡ Project Documentor v3
+# Docnine
 
 > **AI-powered GitHub documentation generator** — SaaS platform with authentication, persistent projects, and live pipeline streaming.
 
@@ -499,78 +499,6 @@ CMD ["node", "src/server.js"]
 ```bash
 docker build -t project-documentor .
 docker run -p 3000:3000 --env-file .env project-documentor
-```
-
----
-
-## Project Structure
-
-```
-project-documentor/
-├── src/
-│   ├── server.js                    # Entry point — Express app + startup
-│   │
-│   ├── api/
-│   │   ├── router.js                # Mounts all 4 feature routers
-│   │   ├── legacy.router.js         # /api/* backward-compatible routes
-│   │   ├── auth/
-│   │   │   ├── auth.routes.js
-│   │   │   ├── auth.controller.js
-│   │   │   └── auth.service.js
-│   │   ├── github/
-│   │   │   ├── github.routes.js
-│   │   │   ├── github.controller.js
-│   │   │   └── github.service.js
-│   │   └── projects/
-│   │       ├── project.routes.js
-│   │       ├── project.controller.js
-│   │       └── project.service.js
-│   │
-│   ├── middleware/
-│   │   ├── auth.middleware.js        # protect + optionalAuth
-│   │   ├── validate.middleware.js    # express-validator rules + validate()
-│   │   └── rateLimiter.middleware.js # authLimiter, signupLimiter, apiLimiter
-│   │
-│   ├── models/
-│   │   ├── User.js                  # Auth state, bcrypt password, refresh token hash
-│   │   ├── GitHubToken.js           # Encrypted OAuth token per user
-│   │   └── Project.js               # Pipeline state, output, events, security findings
-│   │
-│   ├── config/
-│   │   ├── db.js                    # Mongoose connection (lazy env read)
-│   │   └── email.js                 # Nodemailer transporter (dev console fallback)
-│   │
-│   ├── utils/
-│   │   ├── jwt.util.js              # signAccessToken, signRefreshToken, verify*
-│   │   ├── crypto.util.js           # AES-256-GCM encrypt/decrypt, hashToken
-│   │   ├── response.util.js         # ok(), fail(), serverError(), wrap()
-│   │   └── tokenManager.js          # Chunking, batching, file relevance scoring
-│   │
-│   ├── services/
-│   │   ├── jobRegistry.js           # Shared in-memory SSE job state
-│   │   ├── orchestrator.js          # Pipeline coordinator — wires 6 agents
-│   │   ├── githubService.js         # GitHub API — fetch repo files
-│   │   ├── chatService.js           # Chat with codebase — context + history
-│   │   ├── exportService.js         # PDF (pdfkit) + Notion export
-│   │   └── webhookService.js        # Webhook handler + Actions YAML generator
-│   │
-│   ├── agents/
-│   │   ├── repoScannerAgent.js      # Agent 1 — file classification + tech stack
-│   │   ├── apiExtractorAgent.js     # Agent 2 — route/endpoint extraction
-│   │   ├── schemaAnalyserAgent.js   # Agent 3 — models, DB schema, relationships
-│   │   ├── componentMapperAgent.js  # Agent 4 — services, middleware, utilities
-│   │   ├── docWriterAgent.js        # Agent 5 — README + internal docs
-│   │   └── securityAuditorAgent.js  # Agent 6 — static + LLM security scan
-│   │
-│   └── index.js                     # Standalone v2 server (untouched, fully operational)
-│
-├── public/
-│   └── index.html                   # SPA frontend
-│
-├── .env.example                     # All variables documented with examples
-├── .gitignore
-├── package.json
-└── README.md
 ```
 
 ---

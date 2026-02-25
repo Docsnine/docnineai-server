@@ -89,7 +89,6 @@ const UserSchema = new Schema(
 );
 
 // ── Indexes ───────────────────────────────────────────────────
-UserSchema.index({ email: 1 }); // login lookup
 UserSchema.index({ emailVerificationToken: 1 }); // verify-email
 UserSchema.index({ passwordResetToken: 1 }); // reset-password
 

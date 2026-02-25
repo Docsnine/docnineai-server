@@ -18,9 +18,9 @@ import jwt from "jsonwebtoken";
 import axios from "axios";
 import dotenv from "dotenv";
 
-import { User } from "../../models/User.js";
-import { GitHubToken } from "../../models/GitHubToken.js";
-import { encrypt, decrypt } from "../../utils/crypto.util.js";
+import { User } from "../models/User.js";
+import { GitHubToken } from "../models/GitHubToken.js";
+import { encrypt, decrypt } from "../utils/crypto.util.js";
 
 dotenv.config();
 

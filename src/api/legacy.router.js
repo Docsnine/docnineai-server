@@ -55,21 +55,21 @@ async function load(label, fn) {
 
 export async function loadLegacyServices() {
   await load("orchestrator", async () => {
-    const m = await import("../services/orchestrator.js");
+    const m = await import("../services/orchestrator.service.js");
     _orchestrate = m.orchestrate;
   });
   await load("chat", async () => {
-    const m = await import("../services/chatService.js");
+    const m = await import("../services/chat.service.js");
     _chat = m.chat;
   });
   await load("pdf", async () => {
-    const m = await import("../services/exportService.js");
+    const m = await import("../services/export.service.js");
     _exportToPDF = m.exportToPDF;
     _exportToNotion = m.exportToNotion;
     serviceStatus["notion"] = true;
   });
   await load("webhook", async () => {
-    const m = await import("../services/webhookService.js");
+    const m = await import("../services/webhook.service.js");
     _handleWebhook = m.handleWebhook;
     _genWorkflow = m.generateGitHubActionsWorkflow;
   });

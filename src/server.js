@@ -134,47 +134,6 @@ async function start() {
     const r = (method, path, note = "") =>
       console.log(`    ${method.padEnd(7)}${path}${note ? "  — " + note : ""}`);
 
-    console.log("    ── Auth ─────────────────────────────────────────");
-    r("POST", "/auth/signup");
-    r("POST", "/auth/login");
-    r("POST", "/auth/refresh", "reads httpOnly cookie");
-    r("POST", "/auth/logout");
-    r("POST", "/auth/verify-email");
-    r("POST", "/auth/forgot-password");
-    r("POST", "/auth/reset-password");
-    r("GET", "/auth/me");
-
-    console.log("\n    ── GitHub ───────────────────────────────────────");
-    r("GET", "/github/oauth/start", "returns JSON { url }");
-    r("GET", "/github/oauth/callback", "browser redirect from GitHub");
-    r("GET", "/github/repos");
-    r("GET", "/github/status");
-    r("DELETE", "/github/disconnect");
-
-    console.log("\n    ── Projects ─────────────────────────────────────");
-    r("POST", "/projects", "create + start pipeline");
-    r("GET", "/projects", "list, paginated + filtered");
-    r("GET", "/projects/:id");
-    r("PATCH", "/projects/:id", "archive");
-    r("DELETE", "/projects/:id");
-    r("POST", "/projects/:id/retry", "re-run pipeline");
-    r("GET", "/projects/:id/stream", "SSE live events");
-    r("GET", "/projects/:id/export/pdf");
-    r("GET", "/projects/:id/export/yaml", "GitHub Actions workflow");
-    r("POST", "/projects/:id/export/notion");
-
-    console.log("\n    ── Legacy API (v2 compatible, no auth) ──────────");
-    r("POST", "/api/document");
-    r("GET", "/api/stream/:jobId", "SSE");
-    r("POST", "/api/chat");
-    r("GET", "/api/export/pdf/:jobId");
-    r("POST", "/api/export/notion/:jobId");
-    r("GET", "/api/export/workflow/:jobId");
-    r("POST", "/api/webhook");
-
-    console.log("\n    ── Misc ─────────────────────────────────────────");
-    r("GET", "/health");
-
     // Service status summary
     console.log("\n    Pipeline services:");
     Object.entries(serviceStatus).forEach(([k, ok]) =>

@@ -7,7 +7,7 @@
 // its own sub-step messages (batch N/M, throttle waits, etc.)
 // ===================================================================
 
-import { fetchRepoFiles, fetchRepoFilesWithProgress } from "./githubService.js";
+import { fetchRepoFiles, fetchRepoFilesWithProgress } from "./github.service.js";
 import { repoScannerAgent } from "../agents/repo-scanner.agent.js";
 import { apiExtractorAgent } from "../agents/api-extractor.agent.js";
 import { schemaAnalyserAgent } from "../agents/schema-analyser.agent.js";

@@ -29,7 +29,7 @@ let _orchestrate = null;
 
 async function getOrchestrate() {
   if (_orchestrate) return _orchestrate;
-  const m = await import("../../services/orchestrator.js");
+  const m = await import("../../services/orchestrator.service.js");
   _orchestrate = m.orchestrate;
   return _orchestrate;
 }
