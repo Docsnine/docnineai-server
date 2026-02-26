@@ -1,15 +1,14 @@
-// ===================================================================
-// Thin controllers — parse request, call service, send response.
-// Export handlers are also here: they reconstruct export data from
-// MongoDB so they work after server restarts (not just while the
-// in-memory job exists).
-// ===================================================================
+// =============================================================
+// Thin HTTP layer.
+// v3.1 additions: sync, doc-editing, version history handlers.
+// =============================================================
 
 import * as projectService from "./project.service.js";
 import { ok, fail, serverError } from "../../utils/response.util.js";
-import { jobs, streams } from "../../services/job-registry.service.js";
+import { jobs, streams } from "../../services/jobRegistry.js";
+import { SECTIONS } from "../../models/DocumentVersion.js";
 
-// ── Lazy-load export services ────────────────────────────────
+// ── Lazy export services ──────────────────────────────────────
 let _exportToPDF = null;
 let _exportToNotion = null;
 let _genWorkflow = null;
@@ -17,13 +16,10 @@ let _genWorkflow = null;
 async function getExportToPDF() {
   if (_exportToPDF) return _exportToPDF;
   try {
-    const m = await import("../../services/export.service.js");
+    const m = await import("../../services/exportService.js");
     _exportToPDF = m.exportToPDF;
-    return _exportToPDF;
-  } catch (err) {
-    console.warn("Failed to load exportToPDF:", err.message);
-    return null;
-  }
+  } catch {}
+  return _exportToPDF;
 }
 
 async function getExportToNotion() {
@@ -31,10 +27,8 @@ async function getExportToNotion() {
   try {
     const m = await import("../../services/exportService.js");
     _exportToNotion = m.exportToNotion;
-    return _exportToNotion;
-  } catch {
-    return null;
-  }
+  } catch {}
+  return _exportToNotion;
 }
 
 async function getGenWorkflow() {
@@ -42,29 +36,32 @@ async function getGenWorkflow() {
   try {
     const m = await import("../../services/webhookService.js");
     _genWorkflow = m.generateGitHubActionsWorkflow;
-    return _genWorkflow;
-  } catch {
-    return null;
-  }
+  } catch {}
+  return _genWorkflow;
 }
 
-// ── Error handling ────────────────────────────────────────────
+// ── Domain error handler ──────────────────────────────────────
 const DOMAIN_CODES = new Set([
   "INVALID_REPO_URL",
   "DUPLICATE_PROJECT",
   "PROJECT_NOT_FOUND",
   "PROJECT_RUNNING",
   "PROJECT_ARCHIVED",
+  "PROJECT_NOT_READY",
+  "INVALID_SECTION",
+  "VERSION_NOT_FOUND",
 ]);
 
-function handleServiceError(res, err, context) {
-  if (DOMAIN_CODES.has(err.code)) {
+function handleErr(res, err, ctx) {
+  if (DOMAIN_CODES.has(err.code))
     return fail(res, err.code, err.message, err.status || 400);
-  }
-  return serverError(res, err, context);
+  return serverError(res, err, ctx);
 }
 
-// ── POST /projects ────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// PROJECT CRUD
+// ─────────────────────────────────────────────────────────────
+
 export async function createProject(req, res) {
   try {
     const project = await projectService.createProject({
@@ -74,15 +71,14 @@ export async function createProject(req, res) {
     return ok(
       res,
       { project, streamUrl: `/projects/${project._id}/stream` },
-      "Project created. Documentation pipeline started.",
+      "Pipeline started.",
       201,
     );
   } catch (err) {
-    return handleServiceError(res, err, "createProject");
+    return handleErr(res, err, "createProject");
   }
 }
 
-// ── GET /projects ─────────────────────────────────────────────
 export async function listProjects(req, res) {
   const { page = "1", limit = "20", status, sort, search } = req.query;
   try {
@@ -100,20 +96,24 @@ export async function listProjects(req, res) {
   }
 }
 
-// ── GET /projects/:id ─────────────────────────────────────────
 export async function getProject(req, res) {
   try {
     const project = await projectService.getProjectById({
       projectId: req.params.id,
       userId: req.user.userId,
     });
-    return ok(res, { project });
+    // Return the effectiveOutput (merges user edits on top of AI output)
+    return ok(res, {
+      project,
+      effectiveOutput: project.effectiveOutput,
+      editedSections: project.editedSections,
+      lastSyncedCommit: project.lastDocumentedCommit,
+    });
   } catch (err) {
-    return handleServiceError(res, err, "getProject");
+    return handleErr(res, err, "getProject");
   }
 }
 
-// ── DELETE /projects/:id ──────────────────────────────────────
 export async function deleteProject(req, res) {
   try {
     await projectService.deleteProject({
@@ -122,11 +122,10 @@ export async function deleteProject(req, res) {
     });
     return ok(res, null, "Project deleted.");
   } catch (err) {
-    return handleServiceError(res, err, "deleteProject");
+    return handleErr(res, err, "deleteProject");
   }
 }
 
-// ── PATCH /projects/:id ───────────────────────────────────────
 export async function updateProject(req, res) {
   try {
     const project = await projectService.updateProject({
@@ -136,11 +135,10 @@ export async function updateProject(req, res) {
     });
     return ok(res, { project }, "Project updated.");
   } catch (err) {
-    return handleServiceError(res, err, "updateProject");
+    return handleErr(res, err, "updateProject");
   }
 }
 
-// ── POST /projects/:id/retry ──────────────────────────────────
 export async function retryProject(req, res) {
   try {
     const project = await projectService.retryProject({
@@ -154,26 +152,53 @@ export async function retryProject(req, res) {
       202,
     );
   } catch (err) {
-    return handleServiceError(res, err, "retryProject");
+    return handleErr(res, err, "retryProject");
   }
 }
 
-// ── GET /projects/:id/stream — SSE ───────────────────────────
-// Not wrapped with wrap() — long-lived streaming response.
-// Ownership is verified before opening the stream.
+// ─────────────────────────────────────────────────────────────
+// INCREMENTAL SYNC
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * POST /projects/:id/sync
+ * Check for new commits and re-document only what changed.
+ * Uses forceFullRun=true query param to bypass incremental logic.
+ */
+export async function syncProject(req, res) {
+  const forceFullRun = req.query.force === "true";
+  try {
+    const result = await projectService.syncProject({
+      projectId: req.params.id,
+      userId: req.user.userId,
+      forceFullRun,
+    });
+    return ok(
+      res,
+      { project: result.project, streamUrl: result.streamUrl },
+      forceFullRun ? "Full re-run started." : "Incremental sync started.",
+      202,
+    );
+  } catch (err) {
+    return handleErr(res, err, "syncProject");
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// SSE STREAM
+// ─────────────────────────────────────────────────────────────
+
 export async function streamProject(req, res) {
   const projectId = req.params.id;
 
   let project;
-
   try {
     project = await projectService.getProjectById({
       projectId,
       userId: req.user.userId,
     });
   } catch (err) {
-    const status = err.code === "PROJECT_NOT_FOUND" ? 404 : 500;
-    return res.status(status).json({
+    return res.status(err.status || 500).json({
       success: false,
       error: { code: err.code || "INTERNAL_ERROR", message: err.message },
     });
@@ -188,11 +213,10 @@ export async function streamProject(req, res) {
   const jobId = project.jobId;
   const job = jobs.get(jobId);
 
-  // ── Job not in memory: reconstruct from MongoDB ──────────────
   if (!job) {
     const syntheticResult = {
       success: project.status === "done",
-      output: project.output,
+      output: project.effectiveOutput, // serve merged (user edits + AI)
       stats: project.stats,
       security: project.security,
       techStack: project.techStack,
@@ -200,7 +224,6 @@ export async function streamProject(req, res) {
       chat: project.chatSessionId ? { sessionId: project.chatSessionId } : null,
       error: project.errorMessage || null,
     };
-
     if (project.status === "done" || project.status === "error") {
       res.write(
         `data: ${JSON.stringify({ step: "done", result: syntheticResult })}\n\n`,
@@ -210,19 +233,17 @@ export async function streamProject(req, res) {
         `data: ${JSON.stringify({
           step: "error",
           status: "error",
-          msg: "Pipeline state lost (server restarted). Use POST /projects/:id/retry to re-run.",
+          msg: "Pipeline state lost (server restarted). Use POST /projects/:id/retry or /sync to re-run.",
         })}\n\n`,
       );
     }
     return res.end();
   }
 
-  // ── Replay buffered events ───────────────────────────────────
   for (const e of job.events) {
     res.write(`data: ${JSON.stringify(e)}\n\n`);
   }
 
-  // ── Already done in memory ───────────────────────────────────
   if (job.status !== "running") {
     res.write(
       `data: ${JSON.stringify({ step: "done", result: job.result })}\n\n`,
@@ -230,7 +251,6 @@ export async function streamProject(req, res) {
     return res.end();
   }
 
-  // ── Still running — register as SSE client ───────────────────
   const clients = streams.get(jobId) || new Set();
   clients.add(res);
   streams.set(jobId, clients);
@@ -239,7 +259,7 @@ export async function streamProject(req, res) {
     try {
       res.write(": heartbeat\n\n");
     } catch {
-      /* client gone */
+      /* gone */
     }
   }, 25_000);
 
@@ -250,111 +270,233 @@ export async function streamProject(req, res) {
   });
 }
 
-// ── GET /projects/:id/export/pdf ─────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// DOCUMENT EDITING
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * PATCH /projects/:id/docs/:section
+ * Save a user edit for one documentation section.
+ */
+export async function editDocSection(req, res) {
+  const { section } = req.params;
+  const { content } = req.body;
+  if (typeof content !== "string" || content.trim().length === 0)
+    return fail(
+      res,
+      "VALIDATION_ERROR",
+      "content must be a non-empty string.",
+      422,
+    );
+  try {
+    const project = await projectService.editDocSection({
+      projectId: req.params.id,
+      userId: req.user.userId,
+      section,
+      content: content.trim(),
+    });
+    return ok(
+      res,
+      {
+        project,
+        effectiveOutput: project.effectiveOutput,
+        editedSections: project.editedSections,
+      },
+      `Section "${section}" saved.`,
+    );
+  } catch (err) {
+    return handleErr(res, err, "editDocSection");
+  }
+}
+
+/**
+ * DELETE /projects/:id/docs/:section/edit
+ * Revert to AI-generated content (clear the user edit).
+ */
+export async function revertDocSection(req, res) {
+  const { section } = req.params;
+  try {
+    const project = await projectService.revertDocSection({
+      projectId: req.params.id,
+      userId: req.user.userId,
+      section,
+    });
+    return ok(
+      res,
+      {
+        project,
+        effectiveOutput: project.effectiveOutput,
+        editedSections: project.editedSections,
+      },
+      `Section "${section}" reverted to AI version.`,
+    );
+  } catch (err) {
+    return handleErr(res, err, "revertDocSection");
+  }
+}
+
+/**
+ * POST /projects/:id/docs/:section/accept-ai
+ * User accepts the new AI-generated content for a stale section.
+ * Equivalent to revert but semantically clearer when invoked after a sync.
+ */
+export async function acceptAISection(req, res) {
+  const { section } = req.params;
+  try {
+    const project = await projectService.acceptAISection({
+      projectId: req.params.id,
+      userId: req.user.userId,
+      section,
+    });
+    return ok(
+      res,
+      {
+        project,
+        effectiveOutput: project.effectiveOutput,
+        editedSections: project.editedSections,
+      },
+      `Accepted new AI content for "${section}".`,
+    );
+  } catch (err) {
+    return handleErr(res, err, "acceptAISection");
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// VERSION HISTORY
+// ─────────────────────────────────────────────────────────────
+
+export async function listVersions(req, res) {
+  const { section } = req.params;
+  const { page = "1", limit = "20" } = req.query;
+  try {
+    const result = await projectService.listVersions({
+      projectId: req.params.id,
+      userId: req.user.userId,
+      section,
+      page: parseInt(page, 10),
+      limit: parseInt(limit, 10),
+    });
+    return ok(res, result);
+  } catch (err) {
+    return handleErr(res, err, "listVersions");
+  }
+}
+
+export async function getVersion(req, res) {
+  try {
+    const version = await projectService.getVersion({
+      projectId: req.params.id,
+      userId: req.user.userId,
+      versionId: req.params.versionId,
+    });
+    return ok(res, { version });
+  } catch (err) {
+    return handleErr(res, err, "getVersion");
+  }
+}
+
+export async function restoreVersion(req, res) {
+  try {
+    const project = await projectService.restoreVersion({
+      projectId: req.params.id,
+      userId: req.user.userId,
+      versionId: req.params.versionId,
+    });
+    return ok(
+      res,
+      {
+        project,
+        effectiveOutput: project.effectiveOutput,
+        editedSections: project.editedSections,
+      },
+      "Version restored.",
+    );
+  } catch (err) {
+    return handleErr(res, err, "restoreVersion");
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// EXPORTS
+// ─────────────────────────────────────────────────────────────
+
 export async function exportPdf(req, res) {
   const exportToPDF = await getExportToPDF();
-  if (!exportToPDF) {
+  if (!exportToPDF)
     return fail(
       res,
       "SERVICE_UNAVAILABLE",
       "PDF export requires pdfkit. Run: npm install pdfkit",
       503,
     );
-  }
-
   try {
     const project = await projectService.getProjectById({
       projectId: req.params.id,
       userId: req.user.userId,
     });
-
-    if (project.status !== "done") {
-      return fail(
-        res,
-        "PROJECT_NOT_READY",
-        "Documentation pipeline has not completed successfully.",
-        409,
-      );
-    }
-
+    if (project.status !== "done")
+      return fail(res, "PROJECT_NOT_READY", "Pipeline has not completed.", 409);
     exportToPDF(res, {
       meta: project.meta || {},
-      output: project.output || {},
+      output: project.effectiveOutput, // serve merged content
       stats: project.stats || {},
       securityScore: project.security?.score ?? null,
     });
   } catch (err) {
-    return handleServiceError(res, err, "exportPdf");
+    return handleErr(res, err, "exportPdf");
   }
 }
 
-// ── GET /projects/:id/export/yaml ────────────────────────────
 export async function exportYaml(req, res) {
   const genWorkflow = await getGenWorkflow();
-  if (!genWorkflow) {
+  if (!genWorkflow)
     return fail(
       res,
       "SERVICE_UNAVAILABLE",
       "Workflow generator unavailable.",
       503,
     );
-  }
-
   try {
-    // Ownership check
     await projectService.getProjectById({
       projectId: req.params.id,
       userId: req.user.userId,
     });
-
     const yml = genWorkflow(`${req.protocol}://${req.get("host")}`);
     res.setHeader("Content-Type", "text/yaml");
     res.setHeader("Content-Disposition", "attachment; filename=document.yml");
     res.send(yml);
   } catch (err) {
-    return handleServiceError(res, err, "exportYaml");
+    return handleErr(res, err, "exportYaml");
   }
 }
 
-// ── POST /projects/:id/export/notion ─────────────────────────
 export async function exportNotion(req, res) {
   const exportToNotion = await getExportToNotion();
-  if (!exportToNotion) {
+  if (!exportToNotion)
     return fail(
       res,
       "SERVICE_UNAVAILABLE",
-      "Notion export requires @notionhq/client. Run: npm install @notionhq/client",
+      "Notion export requires @notionhq/client.",
       503,
     );
-  }
-
   try {
     const project = await projectService.getProjectById({
       projectId: req.params.id,
       userId: req.user.userId,
     });
-
-    if (project.status !== "done") {
-      return fail(
-        res,
-        "PROJECT_NOT_READY",
-        "Documentation pipeline has not completed successfully.",
-        409,
-      );
-    }
-
+    if (project.status !== "done")
+      return fail(res, "PROJECT_NOT_READY", "Pipeline has not completed.", 409);
     const result = await exportToNotion({
       meta: project.meta || {},
-      output: project.output || {},
+      output: project.effectiveOutput,
       stats: project.stats || {},
       securityScore: project.security?.score ?? null,
     });
-
     return ok(res, result, "Documentation pushed to Notion.");
   } catch (err) {
-    if (err.message?.includes("NOTION_API_KEY")) {
+    if (err.message?.includes("NOTION_API_KEY"))
       return fail(res, "NOTION_NOT_CONFIGURED", err.message, 503);
-    }
-    return handleServiceError(res, err, "exportNotion");
+    return handleErr(res, err, "exportNotion");
   }
 }

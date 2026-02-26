@@ -1,17 +1,33 @@
-// ===================================================================
-// Represents one documentation run for a GitHub repository.
-// Lifecycle: queued → running → done | error → (archived)
+// =============================================================
+// Represents one documentation project for a GitHub repository.
 //
-// The jobId field is the UUID used by the SSE job registry,
-// making it trivial to wire MongoDB persistence to the existing
-// /api/stream/:jobId endpoint without any changes to that code.
-// ===================================================================
+//   editedOutput     — user overrides per section. Sparse: only
+//                      set sections are stored. The API merges
+//                      editedOutput on top of AI output when reading.
+//
+//   editedSections   — tracks which sections have user edits +
+//                      whether each edit is stale (AI has newer
+//                      content the user hasn't reviewed yet).
+//
+//   lastDocumentedCommit — git SHA at the time of last successful
+//                      full or incremental pipeline run.
+//
+//   fileManifest     — [{path, sha, role}] snapshot of the repo
+//                      tree as of lastDocumentedCommit. Used for
+//                      SHA-based diffing without GitHub compare API.
+//
+//   agentOutputs     — raw structured outputs from each agent.
+//                      select:false — not returned in queries.
+//                      Stored so incremental sync can surgically
+//                      remove/merge changed-file entries without
+//                      re-running agents on the whole repo.
+// =============================================================
 
 import mongoose from "mongoose";
 
 const { Schema, model } = mongoose;
 
-// ── Reusable sub-schemas ──────────────────────────────────────
+// ── Security sub-schemas ──────────────────────────────────────
 
 const SecurityFindingSchema = new Schema(
   {
@@ -41,6 +57,8 @@ const SecuritySchema = new Schema(
   { _id: false },
 );
 
+// ── Stats sub-schema ──────────────────────────────────────────
+
 const StatsSchema = new Schema(
   {
     filesAnalysed: { type: Number, default: 0 },
@@ -52,6 +70,10 @@ const StatsSchema = new Schema(
   { _id: false },
 );
 
+// ── Output sub-schema — AI-generated documentation ────────────
+// This always holds the latest AI content.
+// Do not write user edits here — use editedOutput.
+
 const OutputSchema = new Schema(
   {
     readme: { type: String, default: "" },
@@ -59,6 +81,53 @@ const OutputSchema = new Schema(
     apiReference: { type: String, default: "" },
     schemaDocs: { type: String, default: "" },
     securityReport: { type: String, default: "" },
+  },
+  { _id: false },
+);
+
+// ── Edited sections tracking ──────────────────────────────────
+
+const EditedSectionSchema = new Schema(
+  {
+    section: { type: String, required: true },
+    editedAt: { type: Date, required: true },
+    // stale: true when AI has regenerated the section since the user
+    // last edited it. The user should review and decide: keep their
+    // edit or accept the new AI content.
+    stale: { type: Boolean, default: false },
+  },
+  { _id: false },
+);
+
+// ── File manifest entry — for incremental diff ────────────────
+
+const FileManifestEntrySchema = new Schema(
+  {
+    path: { type: String, required: true },
+    sha: { type: String, required: true }, // Git blob SHA
+    role: { type: String }, // from repoScannerAgent classification
+  },
+  { _id: false },
+);
+
+// ── Agent outputs — raw structured data for incremental merge ─
+// Each entry has a `file` field so stale entries can be removed
+// when that file changes, without touching entries from other files.
+
+const AgentOutputsSchema = new Schema(
+  {
+    // From apiExtractorAgent: [{method, path, description, file, ...}]
+    endpoints: { type: [Schema.Types.Mixed], default: [] },
+    // From schemaAnalyserAgent: [{name, fields, description, file, ...}]
+    models: { type: [Schema.Types.Mixed], default: [] },
+    // From schemaAnalyserAgent: [{from, to, type, through}]
+    relationships: { type: [Schema.Types.Mixed], default: [] },
+    // From componentMapperAgent: [{name, file, type, description, ...}]
+    components: { type: [Schema.Types.Mixed], default: [] },
+    // From securityAuditorAgent: [{id, severity, title, file, ...}]
+    findings: { type: [Schema.Types.Mixed], default: [] },
+    // From repoScannerAgent: [{path, role, summary}]
+    projectMap: { type: [Schema.Types.Mixed], default: [] },
   },
   { _id: false },
 );
@@ -81,11 +150,10 @@ const ProjectSchema = new Schema(
     repoName: { type: String, required: true, trim: true },
 
     // ── Pipeline state ────────────────────────────────────────
-    // jobId links this document to the SSE job registry
     jobId: {
       type: String,
       unique: true,
-      sparse: true, // only set once pipeline starts
+      sparse: true,
     },
 
     status: {
@@ -95,9 +163,9 @@ const ProjectSchema = new Schema(
       index: true,
     },
 
-    errorMessage: String, // populated only on status === "error"
+    errorMessage: String,
 
-    // ── GitHub repo metadata (from GitHub API) ────────────────
+    // ── GitHub repo metadata ──────────────────────────────────
     meta: {
       name: String,
       description: String,
@@ -113,20 +181,55 @@ const ProjectSchema = new Schema(
     // ── Pipeline results ──────────────────────────────────────
     stats: { type: StatsSchema, default: () => ({}) },
     security: { type: SecuritySchema, default: () => ({}) },
+
+    // AI-generated documentation (always latest AI version)
     output: { type: OutputSchema, default: () => ({}) },
 
+    // ── User edits (v3.1) ─────────────────────────────────────
+    // Sparse — only sections the user has edited are set.
+    // The API merges this on top of `output` when reading.
+    editedOutput: {
+      type: OutputSchema,
+      default: () => ({}),
+    },
+
+    // Tracks which sections have user edits and their staleness.
+    editedSections: {
+      type: [EditedSectionSchema],
+      default: [],
+    },
+
+    // ── Incremental sync state (v3.1) ─────────────────────────
+    // Git SHA of the commit that `output` was generated from.
+    // null = never synced or full run happened without capturing SHA.
+    lastDocumentedCommit: { type: String, default: null },
+
+    // File tree snapshot as of lastDocumentedCommit.
+    // Used to compute diffs via SHA comparison — no compare API needed.
+    fileManifest: {
+      type: [FileManifestEntrySchema],
+      default: [],
+      select: false, // large array — only fetched when needed
+    },
+
+    // Raw structured agent outputs — needed for incremental merging.
+    agentOutputs: {
+      type: AgentOutputsSchema,
+      default: () => ({}),
+      select: false, // only fetched during sync operations
+    },
+
     // ── Chat session ──────────────────────────────────────────
-    chatSessionId: String, // matches jobId in chatService sessions
+    chatSessionId: String,
 
     // ── Soft delete / archive ─────────────────────────────────
     archivedAt: Date,
 
-    // ── Pipeline event log (last 200 events) ─────────────────
-    // Stored so users can replay progress after page refresh.
+    // ── Pipeline event log (last 200 events) ──────────────────
     events: {
       type: [Schema.Types.Mixed],
       default: [],
-      select: false, // not returned in list queries — only on .select("+events")
+      select: false,
     },
   },
   {
@@ -136,14 +239,32 @@ const ProjectSchema = new Schema(
 );
 
 // ── Compound indexes ──────────────────────────────────────────
-ProjectSchema.index({ userId: 1, createdAt: -1 }); // list projects, newest first
-ProjectSchema.index({ userId: 1, status: 1 }); // filter by status
-ProjectSchema.index({ userId: 1, repoOwner: 1, repoName: 1 }); // duplicate check
+ProjectSchema.index({ userId: 1, createdAt: -1 });
+ProjectSchema.index({ userId: 1, status: 1 });
+ProjectSchema.index({ userId: 1, repoOwner: 1, repoName: 1 });
 
 // ── Text index for search ─────────────────────────────────────
 ProjectSchema.index(
   { repoName: "text", repoOwner: "text", "meta.description": "text" },
   { name: "project_search" },
 );
+
+// ── Virtual: merged output ────────────────────────────────────
+// Returns editedOutput where set, falls back to AI output.
+// Used by the API to give the client the "effective" content.
+ProjectSchema.virtual("effectiveOutput").get(function () {
+  const sections = [
+    "readme",
+    "internalDocs",
+    "apiReference",
+    "schemaDocs",
+    "securityReport",
+  ];
+  const merged = {};
+  for (const s of sections) {
+    merged[s] = this.editedOutput?.[s] || this.output?.[s] || "";
+  }
+  return merged;
+});
 
 export const Project = model("Project", ProjectSchema);

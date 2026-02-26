@@ -1,23 +1,32 @@
-// ===================================================================
-// Progress event schema:
-//   { step, status: "running"|"done"|"error"|"waiting",
-//     msg, detail, ts }
+// =============================================================
+// Full pipeline: all 6 agents, all doc sections.
 //
-// Every agent receives an `emit` callback so it can broadcast
-// its own sub-step messages (batch N/M, throttle waits, etc.)
-// ===================================================================
+// v3.1 change: also captures and returns raw agent outputs
+// (endpoints, models, components, findings, projectMap) and the
+// current git commit SHA + file tree with SHAs. This lets
+// project.service.js store them for incremental sync later.
+//
+// Progress event schema:
+//   { step, status: "running"|"done"|"error"|"waiting", msg, detail, ts }
+// =============================================================
 
-import { fetchRepoFiles, fetchRepoFilesWithProgress } from "./github.service.js";
-import { repoScannerAgent } from "../agents/repo-scanner.agent.js";
-import { apiExtractorAgent } from "../agents/api-extractor.agent.js";
-import { schemaAnalyserAgent } from "../agents/schema-analyser.agent.js";
-import { componentMapperAgent } from "../agents/component-mapper.agent.js";
-import { docWriterAgent } from "../agents/doc-writer.agent.js";
-import { securityAuditorAgent } from "../agents/security-auditor.agent.js";
-import { createChatSession, getSuggestedQuestions } from "./chat.service.js";
+import {
+  fetchRepoFilesWithProgress,
+  getCommitSha,
+  getFileTreeWithSha,
+  parseRepoUrl,
+} from "./githubService.js";
+
+import { repoScannerAgent } from "../agents/repoScannerAgent.js";
+import { apiExtractorAgent } from "../agents/apiExtractorAgent.js";
+import { schemaAnalyserAgent } from "../agents/schemaAnalyserAgent.js";
+import { componentMapperAgent } from "../agents/componentMapperAgent.js";
+import { docWriterAgent } from "../agents/docWriterAgent.js";
+import { securityAuditorAgent } from "../agents/securityAuditorAgent.js";
+import { createChatSession, getSuggestedQuestions } from "./chatService.js";
+import { updateFileManifest } from "./diffService.js";
 
 export async function orchestrate(repoUrl, onProgress) {
-  // all progress flows through here
   const emit = (step, status, msg, detail = null) => {
     const event = { step, status, msg, detail, ts: Date.now() };
     console.log(`[${step}:${status}] ${msg}${detail ? " — " + detail : ""}`);
@@ -29,7 +38,7 @@ export async function orchestrate(repoUrl, onProgress) {
     emit("fetch", "running", "Connecting to GitHub…");
     const { meta, files, owner, repo } = await fetchRepoFilesWithProgress(
       repoUrl,
-      (msg) => emit("fetch", "running", msg), // pass sub-progress into githubService
+      (msg) => emit("fetch", "running", msg),
     );
     emit(
       "fetch",
@@ -38,7 +47,14 @@ export async function orchestrate(repoUrl, onProgress) {
       `${owner}/${repo}`,
     );
 
-    // ── STEP 2: Repo Scanner (Agent 1) ────────────────────────
+    // Capture commit SHA and file tree with SHAs for incremental sync
+    // These run in parallel with the repo scan since they're lightweight API calls
+    const [currentCommitSha, treeWithSha] = await Promise.all([
+      getCommitSha(owner, repo, meta.defaultBranch).catch(() => null),
+      getFileTreeWithSha(owner, repo, meta.defaultBranch).catch(() => []),
+    ]);
+
+    // ── STEP 2: Repo Scanner ──────────────────────────────────
     emit(
       "scan",
       "running",
@@ -59,30 +75,10 @@ export async function orchestrate(repoUrl, onProgress) {
     );
 
     // ── STEPS 3–6: Parallel agents ────────────────────────────
-    emit(
-      "api",
-      "running",
-      "Extracting API endpoints…",
-      "Agent 2 — scanning route files",
-    );
-    emit(
-      "schema",
-      "running",
-      "Analysing data models…",
-      "Agent 3 — scanning schema files",
-    );
-    emit(
-      "components",
-      "running",
-      "Mapping components…",
-      "Agent 4 — services, middleware, utilities",
-    );
-    emit(
-      "security",
-      "running",
-      "Running security audit…",
-      "Agent 6 — static scan + AI deep scan",
-    );
+    emit("api", "running", "Extracting API endpoints…", "Agent 2");
+    emit("schema", "running", "Analysing data models…", "Agent 3");
+    emit("components", "running", "Mapping components…", "Agent 4");
+    emit("security", "running", "Running security audit…", "Agent 6");
 
     const [
       { endpoints },
@@ -126,7 +122,7 @@ export async function orchestrate(repoUrl, onProgress) {
       `Critical:${counts.CRITICAL} High:${counts.HIGH} Medium:${counts.MEDIUM} Low:${counts.LOW}`,
     );
 
-    // ── STEP 7: Doc Writer (Agent 5) ──────────────────────────
+    // ── STEP 7: Doc Writer ────────────────────────────────────
     emit("write", "running", "Writing README.md…", "Agent 5 — Doc Writer");
     const { readme, internalDocs, apiReference, schemaDocs } =
       await docWriterAgent({
@@ -158,7 +154,10 @@ export async function orchestrate(repoUrl, onProgress) {
     const suggestedQuestions = getSuggestedQuestions(output);
     emit("chat", "done", "Chat ready — ask anything about this codebase");
 
-    // ── Done ──────────────────────────────────────────────────
+    // ── Build fileManifest for incremental sync ───────────────
+    const fileManifest = updateFileManifest([], treeWithSha, projectMap);
+
+    // ── Stats ─────────────────────────────────────────────────
     const stats = {
       filesAnalysed: files.length,
       endpoints: endpoints.length,
@@ -166,6 +165,7 @@ export async function orchestrate(repoUrl, onProgress) {
       relationships: relationships.length,
       components: components.length,
     };
+
     emit(
       "done",
       "done",
@@ -184,6 +184,19 @@ export async function orchestrate(repoUrl, onProgress) {
       security: { score, grade, counts, findings: findings.slice(0, 50) },
       output,
       chat: { sessionId, suggestedQuestions },
+
+      // ── v3.1: incremental sync baseline ──────────────────────
+      // Stored in Project so future syncs only re-run what changed.
+      lastDocumentedCommit: currentCommitSha,
+      fileManifest,
+      agentOutputs: {
+        endpoints,
+        models,
+        relationships,
+        components,
+        findings: findings.slice(0, 200), // keep more for merge accuracy
+        projectMap,
+      },
     };
   } catch (err) {
     console.error("❌ Orchestration failed:", err);

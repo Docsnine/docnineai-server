@@ -1,51 +1,65 @@
-// ===================================================================
-// All project routes require authentication + API rate limiting.
-//
+// =============================================================
 // Full route map:
-//   POST   /projects                  Create + start pipeline
-//   GET    /projects                  List (paginated, filtered, searched)
-//   GET    /projects/:id              Project detail (includes output)
-//   DELETE /projects/:id              Hard-delete (blocked while running)
-//   PATCH  /projects/:id              Archive (blocked while running)
-//   POST   /projects/:id/retry        Re-run pipeline (error or done only)
-//   GET    /projects/:id/stream       SSE live pipeline events
-//   GET    /projects/:id/export/pdf   Download PDF from MongoDB data
-//   GET    /projects/:id/export/yaml  Download GitHub Actions YAML
-//   POST   /projects/:id/export/notion Push to Notion
 //
-// Validation strategy:
-//   mongoId  — validates :id param, calls validate() ONCE
-//   Body rules are in separate arrays and get their own validate() call.
-//   Never compose mongoId + body-rule validate in a single spread —
-//   that would fire validate() twice and short-circuit on param errors
-//   before body rules run.
-// ===================================================================
+//   POST   /projects                          create + start pipeline
+//   GET    /projects                          list (paginated, filtered)
+//   GET    /projects/:id                      detail + effectiveOutput
+//   PATCH  /projects/:id                      archive
+//   DELETE /projects/:id                      hard delete
+//   POST   /projects/:id/retry                full re-run
+//   POST   /projects/:id/sync                 incremental sync (?force=true for full)
+//   GET    /projects/:id/stream               SSE live events
+//
+//   ── Document editing ────────────────────────────────────────
+//   PATCH  /projects/:id/docs/:section        save user edit
+//   DELETE /projects/:id/docs/:section/edit   revert to AI version
+//   POST   /projects/:id/docs/:section/accept-ai  accept new AI after stale sync
+//
+//   ── Version history ─────────────────────────────────────────
+//   GET    /projects/:id/docs/:section/versions             list (no content)
+//   GET    /projects/:id/docs/:section/versions/:versionId  full content
+//   POST   /projects/:id/docs/:section/versions/:versionId/restore
+//
+//   ── Exports (read from MongoDB — survive server restarts) ───
+//   GET    /projects/:id/export/pdf
+//   GET    /projects/:id/export/yaml
+//   POST   /projects/:id/export/notion
+// =============================================================
 
 import { Router } from "express";
-import { param } from "express-validator";
+import { param, body } from "express-validator";
 import * as ctrl from "./project.controller.js";
 import { protect } from "../../middleware/auth.middleware.js";
 import { rules, validate } from "../../middleware/validate.middleware.js";
 import { apiLimiter } from "../../middleware/rateLimiter.middleware.js";
 import { wrap } from "../../utils/response.util.js";
+import { SECTIONS } from "../../models/DocumentVersion.js";
 
 const router = Router();
 router.use(protect, apiLimiter);
 
-// ── Param validators ─────────────────────────────────────────
-// validateMongoId: validate :id param, call validate() ONCE.
-// validatePatchBody: validate request body ONLY (param done by mongoId).
+// ── Param validators ──────────────────────────────────────────
 const validateMongoId = [
   param("id").isMongoId().withMessage("Invalid project ID"),
   validate,
 ];
 const validatePatchBody = [...rules.updateProject, validate];
+const validateSection = [
+  param("section")
+    .isIn(SECTIONS)
+    .withMessage(`section must be one of: ${SECTIONS.join(", ")}`),
+  validate,
+];
+const validateVersionId = [
+  param("versionId").isMongoId().withMessage("Invalid version ID"),
+  validate,
+];
 
-// ── Collection routes ─────────────────────────────────────────
+// ── Collection ────────────────────────────────────────────────
 router.post("/", rules.createProject, validate, wrap(ctrl.createProject));
 router.get("/", rules.listProjects, validate, wrap(ctrl.listProjects));
 
-// ── Item routes ───────────────────────────────────────────────
+// ── Item ──────────────────────────────────────────────────────
 router.get("/:id", validateMongoId, wrap(ctrl.getProject));
 router.delete("/:id", validateMongoId, wrap(ctrl.deleteProject));
 router.patch(
@@ -56,13 +70,63 @@ router.patch(
 );
 
 // ── Pipeline actions ──────────────────────────────────────────
-// Re-run pipeline for error or done projects
 router.post("/:id/retry", validateMongoId, wrap(ctrl.retryProject));
+router.post("/:id/sync", validateMongoId, wrap(ctrl.syncProject));
 
-// SSE stream — no wrap() (long-lived streaming, not JSON response)
+// SSE (not wrapped — streaming response)
 router.get("/:id/stream", validateMongoId, ctrl.streamProject);
 
-// ── Export routes — work from MongoDB (survive server restarts) ──
+// ── Document editing ──────────────────────────────────────────
+router.patch(
+  "/:id/docs/:section",
+  validateMongoId,
+  validateSection,
+  [
+    body("content").isString().notEmpty().withMessage("content is required"),
+    validate,
+  ],
+  wrap(ctrl.editDocSection),
+);
+
+router.delete(
+  "/:id/docs/:section/edit",
+  validateMongoId,
+  validateSection,
+  wrap(ctrl.revertDocSection),
+);
+
+router.post(
+  "/:id/docs/:section/accept-ai",
+  validateMongoId,
+  validateSection,
+  wrap(ctrl.acceptAISection),
+);
+
+// ── Version history ───────────────────────────────────────────
+router.get(
+  "/:id/docs/:section/versions",
+  validateMongoId,
+  validateSection,
+  wrap(ctrl.listVersions),
+);
+
+router.get(
+  "/:id/docs/:section/versions/:versionId",
+  validateMongoId,
+  validateSection,
+  validateVersionId,
+  wrap(ctrl.getVersion),
+);
+
+router.post(
+  "/:id/docs/:section/versions/:versionId/restore",
+  validateMongoId,
+  validateSection,
+  validateVersionId,
+  wrap(ctrl.restoreVersion),
+);
+
+// ── Exports ───────────────────────────────────────────────────
 router.get("/:id/export/pdf", validateMongoId, wrap(ctrl.exportPdf));
 router.get("/:id/export/yaml", validateMongoId, wrap(ctrl.exportYaml));
 router.post("/:id/export/notion", validateMongoId, wrap(ctrl.exportNotion));
