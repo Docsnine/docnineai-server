@@ -1,6 +1,8 @@
 // =============================================================
 // Represents one documentation project for a GitHub repository.
 //
+// v3.1 additions:
+//
 //   editedOutput     — user overrides per section. Sparse: only
 //                      set sections are stored. The API merges
 //                      editedOutput on top of AI output when reading.
@@ -244,9 +246,14 @@ ProjectSchema.index({ userId: 1, status: 1 });
 ProjectSchema.index({ userId: 1, repoOwner: 1, repoName: 1 });
 
 // ── Text index for search ─────────────────────────────────────
+// language_override points to a non-existent field ("search_language")
+// so MongoDB never reads meta.language (e.g. "TypeScript", "Python")
+// as a text stemming language override. Without this, storing a project
+// whose repo language is anything other than a valid ISO 639-1 name
+// causes: "language override unsupported: TypeScript" on findAndModify.
 ProjectSchema.index(
   { repoName: "text", repoOwner: "text", "meta.description": "text" },
-  { name: "project_search" },
+  { name: "project_search", language_override: "search_language" },
 );
 
 // ── Virtual: merged output ────────────────────────────────────
