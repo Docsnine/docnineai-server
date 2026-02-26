@@ -1,5 +1,5 @@
 // ===================================================================
-// Project Documentor v3 — unified entry point
+// Docnine v3 — unified entry point
 //
 // Route map:
 //   /auth/*      — authentication (signup, login, refresh, etc.)
@@ -112,24 +112,24 @@ app.use((err, req, res, next) => {
 
 // ── Startup ───────────────────────────────────────────────────
 async function start() {
-  console.log("\n⚙️   Project Documentor v3 — starting…\n");
+  console.log("\n Docnine v3 — starting…\n");
 
   // 1. MongoDB — required; hard-exit on failure
   try {
     await connectDB();
   } catch (err) {
-    console.error("❌  MongoDB connection failed:", err.message);
+    console.error(" MongoDB connection failed:", err.message);
     console.error("    Ensure MONGODB_URI is set correctly in .env.");
     process.exit(1);
   }
 
   // 2. Pipeline services — optional; warn but don't abort
-  console.log("\n📦  Loading pipeline services…");
+  console.log("\n Loading pipeline services…");
   await loadLegacyServices();
 
   // 3. Bind HTTP server
   app.listen(PORT, () => {
-    console.log(`\n✅  Ready → http://localhost:${PORT}  (${ENV})\n`);
+    console.log(`\n Ready → http://localhost:${PORT}  (${ENV})\n`);
 
     const r = (method, path, note = "") =>
       console.log(`    ${method.padEnd(7)}${path}${note ? "  — " + note : ""}`);
@@ -148,6 +148,7 @@ start();
 process.on("unhandledRejection", (reason) =>
   console.error("❌  Unhandled rejection:", reason),
 );
+
 process.on("uncaughtException", (err) => {
   console.error("❌  Uncaught exception:", err.stack);
   process.exit(1);

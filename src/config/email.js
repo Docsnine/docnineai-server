@@ -18,7 +18,7 @@ import nodemailer from "nodemailer";
 const APP_URL = process.env.APP_URL || "http://localhost:3000";
 const FROM =
   process.env.EMAIL_FROM ||
-  "Project Documentor <noreply@project-documentor.dev>";
+  "Docnine <noreply@project-documentor.dev>";
 
 // Lazy singleton — created on first use
 let _transporter = null;
@@ -64,7 +64,7 @@ export async function sendVerificationEmail({ to, token, name }) {
   await getTransporter().sendMail({
     from: FROM,
     to,
-    subject: "Verify your Project Documentor email",
+    subject: "Verify your Docnine email",
     text: `Hi ${name},\n\nVerify your email:\n${link}\n\nThis link expires in 24 hours.\n\nIgnore this if you didn't sign up.`,
     html: emailTemplate({
       title: "Verify your email",
@@ -72,7 +72,7 @@ export async function sendVerificationEmail({ to, token, name }) {
       ctaText: "Verify Email",
       ctaUrl: link,
       footer:
-        "If you didn't create a Project Documentor account, you can ignore this email.",
+        "If you didn't create a Docnine account, you can ignore this email.",
     }),
   });
 }
@@ -86,7 +86,7 @@ export async function sendPasswordResetEmail({ to, token, name }) {
   await getTransporter().sendMail({
     from: FROM,
     to,
-    subject: "Reset your Project Documentor password",
+    subject: "Reset your Docnine password",
     text: `Hi ${name},\n\nReset your password:\n${link}\n\nThis link expires in 1 hour.\n\nIgnore this if you didn't request a password reset.`,
     html: emailTemplate({
       title: "Reset your password",
@@ -107,7 +107,7 @@ function emailTemplate({ title, body, ctaText, ctaUrl, footer }) {
 <body style="font-family:system-ui,sans-serif;background:#0d1117;color:#e6edf3;margin:0;padding:40px 20px">
   <div style="max-width:480px;margin:0 auto;background:#161b22;border:1px solid #30363d;border-radius:12px;overflow:hidden">
     <div style="background:#1f6feb;padding:20px 28px">
-      <p style="margin:0;font-size:1.1rem;font-weight:700;color:#fff">⚡ Project Documentor</p>
+      <p style="margin:0;font-size:1.1rem;font-weight:700;color:#fff">⚡ Docnine</p>
     </div>
     <div style="padding:28px">
       <h2 style="margin:0 0 16px;font-size:1.1rem;color:#e6edf3">${title}</h2>

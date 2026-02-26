@@ -1,4 +1,4 @@
-// src/index.js — Project Documentor v2 — SaaS Edition
+// src/index.js — Docnine v2 — SaaS Edition
 import express from "express";
 import cors from "cors";
 import morgan from "morgan";
@@ -181,7 +181,7 @@ app.post("/api/webhook", async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`\n🚀 Project Documentor v2 → http://localhost:${PORT}`);
+  console.log(`\n🚀 Docnine v2 → http://localhost:${PORT}`);
   console.log("   Endpoints:");
   console.log("   POST /api/document          — Generate docs");
   console.log("   GET  /api/stream/:id        — Live SSE progress");
