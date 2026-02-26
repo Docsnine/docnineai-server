@@ -15,35 +15,77 @@
 
 import mongoose from "mongoose";
 
-/**
- * Open the MongoDB connection.
- * Call once at app startup. Mongoose queues operations until connected.
- */
 export async function connectDB() {
-  // Lazy env check — runs after dotenv.config() has been called
   const URI = process.env.MONGODB_URI;
   if (!URI) {
     throw new Error(
       "MONGODB_URI is required in .env\n" +
-        "  Local:  mongodb://localhost:27017/project-documentor\n" +
+        "  Local:  mongodb://localhost:27017/docnine\n" +
         "  Atlas:  mongodb+srv://user:pass@cluster.mongodb.net/project-documentor",
     );
   }
 
-  // Already connected — no-op
   if (mongoose.connection.readyState === 1) return;
 
   await mongoose.connect(URI, {
-    serverSelectionTimeoutMS: 5000, // fail fast if DB unreachable
+    serverSelectionTimeoutMS: 5000,
     socketTimeoutMS: 45000,
   });
 
   console.log(
     `✅ MongoDB → ${mongoose.connection.host}/${mongoose.connection.name}`,
   );
+
+  // Drop and recreate the broken text index automatically
+  await migrateIndexes();
 }
 
-// Surface connection lifecycle events in server log
+// ── Index migration ───────────────────────────────────────────
+// Drops the project_search text index if it was created without
+// language_override. Mongoose will recreate it correctly on next
+// ensureIndexes() call (happens automatically after this function).
+async function migrateIndexes() {
+  try {
+    const db = mongoose.connection.db;
+    const collection = db.collection("projects");
+
+    // List existing indexes on the projects collection
+    const indexes = await collection.indexes();
+    const textIdx = indexes.find((idx) => idx.name === "project_search");
+
+    if (!textIdx) {
+      // Index doesn't exist yet — Mongoose will create it fresh (correctly)
+      console.log(
+        "ℹ️  project_search index not found — will be created on startup",
+      );
+      return;
+    }
+
+    // Check if language_override is already set correctly
+    if (textIdx.language_override === "search_language") {
+      // Already fixed — nothing to do
+      return;
+    }
+
+    // Index exists but is missing language_override — drop it so
+    // Mongoose recreates it with the correct options from Project.js
+    console.log(
+      "🔧 Dropping stale project_search index (missing language_override)…",
+    );
+    await collection.dropIndex("project_search");
+    console.log("✅ Stale index dropped — Mongoose will recreate it correctly");
+
+    // Trigger ensureIndexes so Mongoose rebuilds the index now, not lazily
+    const { Project } = await import("../models/Project.js");
+    await Project.ensureIndexes();
+    console.log("✅ project_search index recreated with language_override");
+  } catch (err) {
+    // Non-fatal — log and continue. The first project write may still fail
+    // if the index exists in the broken state, but the server will keep running.
+    console.error("⚠️  Index migration warning:", err.message);
+  }
+}
+
 mongoose.connection.on("disconnected", () =>
   console.warn("⚠️  MongoDB disconnected — reconnecting…"),
 );

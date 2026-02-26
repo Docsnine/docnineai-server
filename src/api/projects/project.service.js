@@ -23,13 +23,13 @@ import {
   pushEvent,
   finishJob,
   failJob,
-} from "../../services/jobRegistry.js";
+} from "../../services/job-registry.service.js";
 
 // ── Lazy loaders ──────────────────────────────────────────────
 let _orchestrate = null;
 async function getOrchestrate() {
   if (_orchestrate) return _orchestrate;
-  const m = await import("../../services/orchestrator.js");
+  const m = await import("../../services/orchestrator.service.js");
   _orchestrate = m.orchestrate;
   return _orchestrate;
 }
@@ -37,7 +37,7 @@ async function getOrchestrate() {
 let _incrementalSync = null;
 async function getIncrementalSync() {
   if (_incrementalSync) return _incrementalSync;
-  const m = await import("../../services/incrementalOrchestrator.js");
+  const m = await import("../../services/incremental-orchestrator.service.js");
   _incrementalSync = m.incrementalSync;
   return _incrementalSync;
 }
@@ -96,6 +96,7 @@ export async function createProject({ userId, repoUrl }) {
     );
 
   const jobId = randomUUID();
+
   const project = await Project.create({
     userId,
     repoUrl: normalised,
@@ -103,6 +104,7 @@ export async function createProject({ userId, repoUrl }) {
     repoName,
     jobId,
     status: "running",
+    search_language: "english", 
   });
 
   registerJob(jobId);
@@ -527,7 +529,8 @@ async function runPipeline({ project, normalised, jobId }) {
       update.errorMessage = result.error || "Unknown pipeline error";
     }
 
-    await Project.findByIdAndUpdate(project._id, update);
+    await Project.findByIdAndUpdate(project._id, { ...update, search_language: "english" });
+    
     finishJob(jobId, result);
   } catch (err) {
     await Project.findByIdAndUpdate(project._id, {
@@ -593,14 +596,14 @@ async function runSync({ project, jobId, forceFullRun, webhookChangedFiles }) {
       };
       if (!result.success) update.errorMessage = result.error;
 
-      await Project.findByIdAndUpdate(project._id, update);
+      await Project.findByIdAndUpdate(project._id, { ...update, search_language: "english" });
       finishJob(jobId, result);
       return;
     }
 
     // Incremental success — apply the prepared update
     const update = { ...syncResult._update, status: "done" };
-    await Project.findByIdAndUpdate(project._id, update);
+    await Project.findByIdAndUpdate(project._id, { ...update, search_language: "english" });
     finishJob(jobId, { success: true, ...syncResult });
   } catch (err) {
     await Project.findByIdAndUpdate(project._id, {

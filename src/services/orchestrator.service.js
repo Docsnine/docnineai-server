@@ -15,16 +15,16 @@ import {
   getCommitSha,
   getFileTreeWithSha,
   parseRepoUrl,
-} from "./githubService.js";
+} from "./github.service.js";
 
-import { repoScannerAgent } from "../agents/repoScannerAgent.js";
-import { apiExtractorAgent } from "../agents/apiExtractorAgent.js";
-import { schemaAnalyserAgent } from "../agents/schemaAnalyserAgent.js";
-import { componentMapperAgent } from "../agents/componentMapperAgent.js";
-import { docWriterAgent } from "../agents/docWriterAgent.js";
-import { securityAuditorAgent } from "../agents/securityAuditorAgent.js";
-import { createChatSession, getSuggestedQuestions } from "./chatService.js";
-import { updateFileManifest } from "./diffService.js";
+import { repoScannerAgent } from "../agents/repo-scanner.agent.js";
+import { apiExtractorAgent } from "../agents/api-extractor.agent.js";
+import { schemaAnalyserAgent } from "../agents/schema-analyser.agent.js";
+import { componentMapperAgent } from "../agents/component-mapper.agent.js";
+import { docWriterAgent } from "../agents/doc-writer.agent.js";
+import { securityAuditorAgent } from "../agents/security-auditor.agent.js";
+import { createChatSession, getSuggestedQuestions } from "./chat.service.js";
+import { updateFileManifest } from "./diff.service.js";
 
 export async function orchestrate(repoUrl, onProgress) {
   const emit = (step, status, msg, detail = null) => {

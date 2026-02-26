@@ -5,7 +5,7 @@
 
 import * as projectService from "./project.service.js";
 import { ok, fail, serverError } from "../../utils/response.util.js";
-import { jobs, streams } from "../../services/jobRegistry.js";
+import { jobs, streams } from "../../services/job-registry.service.js";
 import { SECTIONS } from "../../models/DocumentVersion.js";
 
 // ── Lazy export services ──────────────────────────────────────
