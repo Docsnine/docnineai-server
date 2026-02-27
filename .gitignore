@@ -1,5 +1,6 @@
 .env 
 index.html
+.env.production
 
 node_modules/
 dist/
