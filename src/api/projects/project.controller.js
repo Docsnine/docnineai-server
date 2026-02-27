@@ -15,28 +15,40 @@ let _genWorkflow = null;
 
 async function getExportToPDF() {
   if (_exportToPDF) return _exportToPDF;
+
   try {
-    const m = await import("../../services/exportService.js");
+    const m = await import("../../services/export.service.js");
     _exportToPDF = m.exportToPDF;
-  } catch {}
+  } catch (e) {
+    console.error("Failed to load exportToPDF:", e);
+  }
+
   return _exportToPDF;
 }
 
 async function getExportToNotion() {
   if (_exportToNotion) return _exportToNotion;
+  
   try {
-    const m = await import("../../services/exportService.js");
+    const m = await import("../../services/export.service.js");
     _exportToNotion = m.exportToNotion;
-  } catch {}
+  } catch (e) {
+    console.error("Failed to load exportToNotion:", e);
+  }
+
   return _exportToNotion;
 }
 
 async function getGenWorkflow() {
   if (_genWorkflow) return _genWorkflow;
+
   try {
-    const m = await import("../../services/webhookService.js");
+    const m = await import("../../services/webhook.service.js");
     _genWorkflow = m.generateGitHubActionsWorkflow;
-  } catch {}
+  } catch (e) {
+    console.error("Failed to load generateGitHubActionsWorkflow:", e);
+  }
+
   return _genWorkflow;
 }
 
@@ -61,7 +73,6 @@ function handleErr(res, err, ctx) {
 // ─────────────────────────────────────────────────────────────
 // PROJECT CRUD
 // ─────────────────────────────────────────────────────────────
-
 export async function createProject(req, res) {
   try {
     const project = await projectService.createProject({
@@ -473,6 +484,7 @@ export async function exportYaml(req, res) {
 
 export async function exportNotion(req, res) {
   const exportToNotion = await getExportToNotion();
+  
   if (!exportToNotion)
     return fail(
       res,
