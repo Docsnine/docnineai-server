@@ -59,6 +59,15 @@ app.get("/health", (_req, res) => {
 });
 
 // ── API ────────────────────────────────────
+
+// Root route returns welcome message
+app.get("/", (_req, res) => {
+  res.json({
+    success: true,
+    error: "Welcome to docnine server"
+  });
+});
+
 app.use("/", apiRouter);
 
 // ── 404 ────────────────────────────────────
