@@ -10,8 +10,9 @@
   "scripts": {
     "start": "node src/server.js",
     "start:legacy": "node src/index.js",
-    "dev": "nodemon src/server.js",
-    "dev:legacy": "nodemon src/index.js"
+    "dev": "nodemon src/dev.js",
+    "dev:legacy": "nodemon src/index.js",
+    "vercel:dev": "vercel dev"
   },
   "dependencies": {
     "@notionhq/client": "^2.3.0",
