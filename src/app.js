@@ -8,6 +8,13 @@ import apiRouter from "./api/router.js";
 
 const app = express();
 
+// ── Trust proxy ────────────────────────────
+// Required on Vercel — without this, express-rate-limit throws
+// ERR_ERL_UNEXPECTED_X_FORWARDED_FOR because Vercel's edge injects
+// X-Forwarded-For but Express "trust proxy" is false by default.
+// Setting to 1 means trust the first hop (Vercel's edge proxy).
+app.set("trust proxy", 1);
+
 let initialized = false;
 
 /**
@@ -16,13 +23,11 @@ let initialized = false;
  */
 async function initOnce() {
   if (initialized) return;
-
   await connectDB();
-
   initialized = true;
 }
 
-// ── Middleware ─────────────────────────────
+// ── Init middleware ────────────────────────
 app.use(async (req, res, next) => {
   try {
     await initOnce();
@@ -32,6 +37,7 @@ app.use(async (req, res, next) => {
   }
 });
 
+// ── CORS ───────────────────────────────────
 app.use(
   cors({
     origin: true,
@@ -39,6 +45,10 @@ app.use(
   }),
 );
 
+// ── Body parsing ───────────────────────────
+// Webhook route needs the raw Buffer for HMAC-SHA256 verification —
+// must be registered BEFORE express.json() consumes the body.
+app.use("/api/webhook", express.raw({ type: "application/json" }));
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 app.use(morgan("dev"));
