@@ -160,3 +160,127 @@ export async function changePassword(req, res) {
     return serverError(res, err, "changePassword");
   }
 }
+
+// ── GET /auth/github/start ────────────────────────────────────
+export function githubLoginStart(req, res) {
+  try {
+    const url = authService.getGithubLoginUrl();
+    return res.redirect(url);
+  } catch (err) {
+    if (err.code === "GITHUB_LOGIN_NOT_CONFIGURED")
+      return fail(res, err.code, err.message, 503);
+    return serverError(res, err, "githubLoginStart");
+  }
+}
+
+// ── GET /auth/github/callback ─────────────────────────────────
+export async function githubLoginCallback(req, res) {
+  const { code, error } = req.query;
+  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+
+  if (error || !code) {
+    return res.redirect(`${frontendUrl}/auth/callback?error=access_denied`);
+  }
+
+  try {
+    const { user, accessToken, refreshToken } = await authService.githubSocialLogin(code);
+    res.cookie("refreshToken", refreshToken, getRefreshCookieOpts());
+    // Pass access token to frontend via URL so it can store in memory
+    return res.redirect(
+      `${frontendUrl}/auth/callback?accessToken=${encodeURIComponent(accessToken)}&userId=${user._id}`,
+    );
+  } catch (err) {
+    const knownCodes = ["GITHUB_CODE_INVALID", "GITHUB_NO_EMAIL", "GITHUB_LOGIN_NOT_CONFIGURED"];
+    const code_ = knownCodes.includes(err.code) ? err.code : "OAUTH_ERROR";
+    return res.redirect(`${frontendUrl}/auth/callback?error=${code_}`);
+  }
+}
+
+// ── GET /auth/google/start ────────────────────────────────────
+export function googleLoginStart(req, res) {
+  try {
+    const url = authService.getGoogleLoginUrl();
+    return res.redirect(url);
+  } catch (err) {
+    if (err.code === "GOOGLE_LOGIN_NOT_CONFIGURED")
+      return fail(res, err.code, err.message, 503);
+    return serverError(res, err, "googleLoginStart");
+  }
+}
+
+// ── GET /auth/google/callback ─────────────────────────────────
+export async function googleLoginCallback(req, res) {
+  const { code, error } = req.query;
+  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+
+  if (error || !code) {
+    return res.redirect(`${frontendUrl}/auth/callback?error=access_denied`);
+  }
+
+  try {
+    const { user, accessToken, refreshToken } = await authService.googleSocialLogin(code);
+    res.cookie("refreshToken", refreshToken, getRefreshCookieOpts());
+    return res.redirect(
+      `${frontendUrl}/auth/callback?accessToken=${encodeURIComponent(accessToken)}&userId=${user._id}`,
+    );
+  } catch (err) {
+    const knownCodes = ["GOOGLE_CODE_INVALID", "GOOGLE_NO_EMAIL", "GOOGLE_LOGIN_NOT_CONFIGURED"];
+    const code_ = knownCodes.includes(err.code) ? err.code : "OAUTH_ERROR";
+    return res.redirect(`${frontendUrl}/auth/callback?error=${code_}`);
+  }
+}
+
+// ── GET /auth/google-docs/callback ───────────────────────────
+// Called after user grants Google Drive / Docs access via project export flow
+export async function googleDocsCallback(req, res) {
+  const { code, state: userId, error } = req.query;
+  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+
+  if (error || !code || !userId) {
+    return res.redirect(`${frontendUrl}/settings?googleDocs=error`);
+  }
+
+  try {
+    const { handleGoogleDocsCallback } = await import("../../services/googleDocs.service.js");
+    await handleGoogleDocsCallback(code, userId);
+    return res.redirect(`${frontendUrl}/settings?googleDocs=connected`);
+  } catch (err) {
+    console.error("Google Docs callback error:", err.message);
+    return res.redirect(`${frontendUrl}/settings?googleDocs=error`);
+  }
+}
+
+// ── GET /auth/google-docs/status ──────────────────────────────
+export async function googleDocsStatusForUser(req, res) {
+  try {
+    const { getGoogleDocsConnectionStatus } = await import("../../services/googleDocs.service.js");
+    const status = await getGoogleDocsConnectionStatus(req.user.userId);
+    return ok(res, status);
+  } catch (err) {
+    return serverError(res, err, "googleDocsStatusForUser");
+  }
+}
+
+// ── GET /auth/google-docs/start ───────────────────────────────
+export async function googleDocsStart(req, res) {
+  try {
+    const { getGoogleDocsOAuthUrl } = await import("../../services/googleDocs.service.js");
+    const url = getGoogleDocsOAuthUrl(req.user.userId);
+    return ok(res, { url }, "Redirect to Google to grant Drive/Docs access.");
+  } catch (err) {
+    if (err.message?.includes("GOOGLE_DOCS_CLIENT_ID"))
+      return fail(res, "GOOGLE_DOCS_NOT_CONFIGURED", err.message, 503);
+    return serverError(res, err, "googleDocsStart");
+  }
+}
+
+// ── DELETE /auth/google-docs ──────────────────────────────────
+export async function googleDocsDisconnectForUser(req, res) {
+  try {
+    const { disconnectGoogleDocs } = await import("../../services/googleDocs.service.js");
+    await disconnectGoogleDocs(req.user.userId);
+    return ok(res, null, "Google Drive disconnected.");
+  } catch (err) {
+    return serverError(res, err, "googleDocsDisconnectForUser");
+  }
+}

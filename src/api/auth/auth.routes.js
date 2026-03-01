@@ -49,6 +49,22 @@ router.post(
 // Uses httpOnly refresh token cookie — no Bearer token needed
 router.post("/refresh", wrap(ctrl.refresh));
 
+// ── OAuth — Social Login (GitHub) ─────────────────────────────
+// The callbacks use redirect so they must NOT be JSON-wrapped.
+router.get("/github/start", ctrl.githubLoginStart);
+router.get("/github/callback", wrap(ctrl.githubLoginCallback));
+
+// ── OAuth — Social Login (Google) ────────────────────────────
+router.get("/google/start", ctrl.googleLoginStart);
+router.get("/google/callback", wrap(ctrl.googleLoginCallback));
+
+// ── OAuth — Google Docs export ────────────────────────────────
+router.get("/google-docs/callback", wrap(ctrl.googleDocsCallback));
+// Settings page endpoints (protected — require JWT)
+router.get("/google-docs/status", protect, wrap(ctrl.googleDocsStatusForUser));
+router.get("/google-docs/start", protect, wrap(ctrl.googleDocsStart));
+router.delete("/google-docs", protect, wrap(ctrl.googleDocsDisconnectForUser));
+
 // ── Protected ─────────────────────────────────────────────────
 router.post("/logout", protect, wrap(ctrl.logout));
 router.get("/me", protect, wrap(ctrl.getMe));

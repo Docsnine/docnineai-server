@@ -32,11 +32,18 @@ const UserSchema = new Schema(
       trim: true,
       match: [/^[^\s@]+@[^\s@]+\.[^\s@]+$/, "Invalid email format"],
     },
+    // Optional for OAuth users (provider !== 'email')
     password: {
       type: String,
-      required: [true, "Password is required"],
       minlength: [8, "Password must be at least 8 characters"],
       select: false, // never returned in queries by default
+    },
+
+    // ── Auth provider ─────────────────────────────────────────
+    provider: {
+      type: String,
+      enum: ["email", "github", "google"],
+      default: "email",
     },
 
     // ── Email verification ────────────────────────────────────
@@ -81,6 +88,17 @@ const UserSchema = new Schema(
       type: String,
       trim: true,
     },
+
+    // ── Google connection (optional) ──────────────────────────
+    googleId: {
+      type: String,
+      sparse: true,
+      unique: true,
+    },
+    googleUsername: {
+      type: String,
+      trim: true,
+    },
   },
   {
     timestamps: true, // adds createdAt, updatedAt automatically
@@ -92,15 +110,27 @@ const UserSchema = new Schema(
 UserSchema.index({ emailVerificationToken: 1 }); // verify-email
 UserSchema.index({ passwordResetToken: 1 }); // reset-password
 
+// ── Pre-save validation — password required for email provider ──
+UserSchema.pre("validate", function (next) {
+  if (this.provider === "email" && this.isNew && !this.password) {
+    this.invalidate("password", "Password is required for email sign-up");
+  }
+  next();
+});
+
 // ── Pre-save hook — hash password if modified ─────────────────
 UserSchema.pre("save", async function (next) {
-  if (!this.isModified("password")) return next();
+  if (!this.isModified("password") || !this.password) return next();
   this.password = await bcrypt.hash(this.password, 12);
   next();
 });
 
 // ── Instance method — compare candidate password ──────────────
 UserSchema.methods.comparePassword = async function (candidate) {
+  if (!this.password) {
+    // OAuth-only account — password login not allowed
+    throw new Error("PASSWORD_LOGIN_NOT_AVAILABLE");
+  }
   return bcrypt.compare(candidate, this.password);
 };
 

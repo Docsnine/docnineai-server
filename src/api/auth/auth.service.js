@@ -74,7 +74,21 @@ export async function login({ email, password }) {
 
   if (!user) throw invalidErr();
 
-  const match = await user.comparePassword(password);
+  let match;
+  try {
+    match = await user.comparePassword(password);
+  } catch (e) {
+    if (e.message === "PASSWORD_LOGIN_NOT_AVAILABLE") {
+      const providerName = user.provider === "github" ? "GitHub" : "Google";
+      const oauthErr = new Error(
+        `This account was created with ${providerName}. Please use "Continue with ${providerName}" to sign in.`,
+      );
+      oauthErr.code = "USE_OAUTH_PROVIDER";
+      oauthErr.status = 400;
+      throw oauthErr;
+    }
+    throw e;
+  }
   if (!match) throw invalidErr();
 
   const { accessToken, refreshToken } = await issueTokens(user);
@@ -313,6 +327,209 @@ export async function getMe(userId) {
     throw err;
   }
   return user;
+}
+
+// ── GitHub Social Login ───────────────────────────────────────
+
+/**
+ * Exchange a GitHub OAuth code (identity scope: read:user user:email)
+ * for a Docnine user, find-or-create, and issue app tokens.
+ *
+ * Env: GITHUB_LOGIN_CLIENT_ID  GITHUB_LOGIN_CLIENT_SECRET
+ *      GITHUB_LOGIN_REDIRECT_URI  (optional, must match OAuth app settings)
+ */
+export async function githubSocialLogin(code) {
+  const { GITHUB_LOGIN_CLIENT_ID, GITHUB_LOGIN_CLIENT_SECRET } = process.env;
+  if (!GITHUB_LOGIN_CLIENT_ID || !GITHUB_LOGIN_CLIENT_SECRET) {
+    const err = new Error(
+      "GitHub Login requires GITHUB_LOGIN_CLIENT_ID and GITHUB_LOGIN_CLIENT_SECRET.",
+    );
+    err.code = "GITHUB_LOGIN_NOT_CONFIGURED";
+    err.status = 503;
+    throw err;
+  }
+
+  const { default: axios } = await import("axios");
+
+  // 1. Exchange code for access token
+  const tokenRes = await axios.post(
+    "https://github.com/login/oauth/access_token",
+    {
+      client_id: GITHUB_LOGIN_CLIENT_ID,
+      client_secret: GITHUB_LOGIN_CLIENT_SECRET,
+      code,
+    },
+    { headers: { Accept: "application/json" } },
+  );
+
+  const githubAccessToken = tokenRes.data.access_token;
+  if (!githubAccessToken) {
+    const err = new Error("GitHub did not return an access token. The code may have expired.");
+    err.code = "GITHUB_CODE_INVALID";
+    err.status = 400;
+    throw err;
+  }
+
+  const ghHeaders = { Authorization: `Bearer ${githubAccessToken}` };
+
+  // 2. Fetch profile + verified primary email in parallel
+  const [userRes, emailsRes] = await Promise.all([
+    axios.get("https://api.github.com/user", { headers: ghHeaders }),
+    axios.get("https://api.github.com/user/emails", { headers: ghHeaders }),
+  ]);
+
+  const ghUser = userRes.data;
+  const primaryEmail = emailsRes.data.find((e) => e.primary && e.verified)?.email;
+
+  if (!primaryEmail) {
+    const err = new Error("No verified primary email found on your GitHub account.");
+    err.code = "GITHUB_NO_EMAIL";
+    err.status = 400;
+    throw err;
+  }
+
+  // 3. Find-or-create
+  let user = await User.findOne({
+    $or: [{ githubId: String(ghUser.id) }, { email: primaryEmail }],
+  });
+
+  if (!user) {
+    user = await User.create({
+      name: ghUser.name || ghUser.login,
+      email: primaryEmail,
+      provider: "github",
+      githubId: String(ghUser.id),
+      githubUsername: ghUser.login,
+      isEmailVerified: true,
+    });
+  } else {
+    let changed = false;
+    if (!user.githubId) {
+      user.githubId = String(ghUser.id);
+      user.githubUsername = ghUser.login;
+      changed = true;
+    }
+    if (!user.isEmailVerified) {
+      user.isEmailVerified = true;
+      changed = true;
+    }
+    if (changed) await user.save();
+  }
+
+  const { accessToken, refreshToken } = await issueTokens(user);
+  return { user, accessToken, refreshToken };
+}
+
+// ── Google Social Login ───────────────────────────────────────
+
+/**
+ * Exchange a Google OAuth code (scope: openid email profile) for a user.
+ *
+ * Env: GOOGLE_LOGIN_CLIENT_ID  GOOGLE_LOGIN_CLIENT_SECRET  GOOGLE_LOGIN_REDIRECT_URI
+ */
+export async function googleSocialLogin(code) {
+  const {
+    GOOGLE_LOGIN_CLIENT_ID,
+    GOOGLE_LOGIN_CLIENT_SECRET,
+    GOOGLE_LOGIN_REDIRECT_URI,
+  } = process.env;
+
+  if (!GOOGLE_LOGIN_CLIENT_ID || !GOOGLE_LOGIN_CLIENT_SECRET || !GOOGLE_LOGIN_REDIRECT_URI) {
+    const err = new Error(
+      "Google Login requires GOOGLE_LOGIN_CLIENT_ID, GOOGLE_LOGIN_CLIENT_SECRET, " +
+        "and GOOGLE_LOGIN_REDIRECT_URI.",
+    );
+    err.code = "GOOGLE_LOGIN_NOT_CONFIGURED";
+    err.status = 503;
+    throw err;
+  }
+
+  const { google } = await import("googleapis");
+  const oauth2Client = new google.auth.OAuth2(
+    GOOGLE_LOGIN_CLIENT_ID,
+    GOOGLE_LOGIN_CLIENT_SECRET,
+    GOOGLE_LOGIN_REDIRECT_URI,
+  );
+
+  const { tokens } = await oauth2Client.getToken(code);
+  oauth2Client.setCredentials(tokens);
+
+  const oauth2 = google.oauth2({ version: "v2", auth: oauth2Client });
+  const { data: profile } = await oauth2.userinfo.get();
+
+  if (!profile.email || !profile.verified_email) {
+    const err = new Error("No verified email found on your Google account.");
+    err.code = "GOOGLE_NO_EMAIL";
+    err.status = 400;
+    throw err;
+  }
+
+  let user = await User.findOne({
+    $or: [{ googleId: profile.id }, { email: profile.email }],
+  });
+
+  if (!user) {
+    user = await User.create({
+      name: profile.name,
+      email: profile.email,
+      provider: "google",
+      googleId: profile.id,
+      googleUsername: profile.name,
+      isEmailVerified: true,
+    });
+  } else {
+    let changed = false;
+    if (!user.googleId) {
+      user.googleId = profile.id;
+      user.googleUsername = profile.name;
+      changed = true;
+    }
+    if (!user.isEmailVerified) {
+      user.isEmailVerified = true;
+      changed = true;
+    }
+    if (changed) await user.save();
+  }
+
+  const { accessToken, refreshToken } = await issueTokens(user);
+  return { user, accessToken, refreshToken };
+}
+
+// ── Generate OAuth start URLs ─────────────────────────────────
+
+export function getGithubLoginUrl() {
+  const { GITHUB_LOGIN_CLIENT_ID, GITHUB_LOGIN_REDIRECT_URI } = process.env;
+  if (!GITHUB_LOGIN_CLIENT_ID) {
+    const err = new Error("GITHUB_LOGIN_CLIENT_ID not configured.");
+    err.code = "GITHUB_LOGIN_NOT_CONFIGURED";
+    err.status = 503;
+    throw err;
+  }
+  const params = new URLSearchParams({
+    client_id: GITHUB_LOGIN_CLIENT_ID,
+    scope: "read:user user:email",
+    ...(GITHUB_LOGIN_REDIRECT_URI ? { redirect_uri: GITHUB_LOGIN_REDIRECT_URI } : {}),
+  });
+  return `https://github.com/login/oauth/authorize?${params}`;
+}
+
+export function getGoogleLoginUrl() {
+  const { GOOGLE_LOGIN_CLIENT_ID, GOOGLE_LOGIN_REDIRECT_URI } = process.env;
+  if (!GOOGLE_LOGIN_CLIENT_ID || !GOOGLE_LOGIN_REDIRECT_URI) {
+    const err = new Error("Google Login env vars not configured.");
+    err.code = "GOOGLE_LOGIN_NOT_CONFIGURED";
+    err.status = 503;
+    throw err;
+  }
+  const params = new URLSearchParams({
+    client_id: GOOGLE_LOGIN_CLIENT_ID,
+    redirect_uri: GOOGLE_LOGIN_REDIRECT_URI,
+    response_type: "code",
+    scope: "openid email profile",
+    access_type: "offline",
+    prompt: "select_account",
+  });
+  return `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
 }
 
 // ── Internal ──────────────────────────────────────────────────

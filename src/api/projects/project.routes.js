@@ -132,4 +132,10 @@ router.get("/:id/export/pdf", validateMongoId, wrap(ctrl.exportPdf));
 router.get("/:id/export/yaml", validateMongoId, wrap(ctrl.exportYaml));
 router.post("/:id/export/notion", validateMongoId, wrap(ctrl.exportNotion));
 
+// Google Docs export
+router.get("/:id/export/google-docs/connect", validateMongoId, wrap(ctrl.googleDocsConnect));
+router.get("/:id/export/google-docs/status", validateMongoId, wrap(ctrl.googleDocsStatus));
+router.delete("/:id/export/google-docs", validateMongoId, wrap(ctrl.googleDocsDisconnect));
+router.post("/:id/export/google-docs", validateMongoId, wrap(ctrl.exportGoogleDocs));
+
 export default router;

@@ -11,6 +11,10 @@ import { SECTIONS } from "../../models/DocumentVersion.js";
 // ── Lazy export services ──────────────────────────────────────
 let _exportToPDF = null;
 let _exportToNotion = null;
+let _exportToGoogleDocs = null;
+let _getGoogleDocsOAuthUrl = null;
+let _getGoogleDocsConnectionStatus = null;
+let _disconnectGoogleDocs = null;
 let _genWorkflow = null;
 
 async function getExportToPDF() {
@@ -37,6 +41,20 @@ async function getExportToNotion() {
   }
 
   return _exportToNotion;
+}
+
+async function getGoogleDocsExport() {
+  if (_exportToGoogleDocs) return _exportToGoogleDocs;
+  try {
+    const m = await import("../../services/googleDocs.service.js");
+    _exportToGoogleDocs = m.exportToGoogleDocs;
+    _getGoogleDocsOAuthUrl = m.getGoogleDocsOAuthUrl;
+    _getGoogleDocsConnectionStatus = m.getGoogleDocsConnectionStatus;
+    _disconnectGoogleDocs = m.disconnectGoogleDocs;
+  } catch (e) {
+    console.error("Failed to load googleDocs.service:", e);
+  }
+  return _exportToGoogleDocs;
 }
 
 async function getGenWorkflow() {
@@ -531,5 +549,83 @@ export async function exportNotion(req, res) {
     if (err.message?.includes("NOTION_API_KEY"))
       return fail(res, "NOTION_NOT_CONFIGURED", err.message, 503);
     return handleErr(res, err, "exportNotion");
+  }
+}
+
+// ── GET /projects/:id/export/google-docs/connect ──────────────
+export async function googleDocsConnect(req, res) {
+  await getGoogleDocsExport(); // load module to populate _getGoogleDocsOAuthUrl
+  if (!_getGoogleDocsOAuthUrl)
+    return fail(res, "SERVICE_UNAVAILABLE", "Google Docs service unavailable.", 503);
+  try {
+    // Verify the user owns this project (access control)
+    await projectService.getProjectById({
+      projectId: req.params.id,
+      userId: req.user.userId,
+    });
+    const url = _getGoogleDocsOAuthUrl(req.user.userId);
+    return ok(res, { url }, "Redirect to Google to grant access.");
+  } catch (err) {
+    return handleErr(res, err, "googleDocsConnect");
+  }
+}
+
+// ── GET /projects/:id/export/google-docs/status ───────────────
+export async function googleDocsStatus(req, res) {
+  await getGoogleDocsExport();
+  if (!_getGoogleDocsConnectionStatus)
+    return ok(res, { connected: false });
+  try {
+    const status = await _getGoogleDocsConnectionStatus(req.user.userId);
+    return ok(res, status);
+  } catch (err) {
+    return handleErr(res, err, "googleDocsStatus");
+  }
+}
+
+// ── DELETE /projects/:id/export/google-docs ───────────────────
+export async function googleDocsDisconnect(req, res) {
+  await getGoogleDocsExport();
+  if (!_disconnectGoogleDocs)
+    return ok(res, null, "Not connected.");
+  try {
+    await _disconnectGoogleDocs(req.user.userId);
+    return ok(res, null, "Google Drive disconnected.");
+  } catch (err) {
+    return handleErr(res, err, "googleDocsDisconnect");
+  }
+}
+
+// ── POST /projects/:id/export/google-docs ─────────────────────
+export async function exportGoogleDocs(req, res) {
+  const exportToGoogleDocs = await getGoogleDocsExport();
+  if (!exportToGoogleDocs)
+    return fail(res, "SERVICE_UNAVAILABLE", "Google Docs export unavailable.", 503);
+  try {
+    const project = await projectService.getProjectById({
+      projectId: req.params.id,
+      userId: req.user.userId,
+    });
+    if (project.status !== "done")
+      return fail(res, "PROJECT_NOT_READY", "Pipeline has not completed.", 409);
+    const result = await exportToGoogleDocs({
+      meta: project.meta || {},
+      output: project.effectiveOutput,
+      stats: project.stats || {},
+      securityScore: project.security?.score ?? null,
+      userId: req.user.userId,
+    });
+    return ok(res, result, "Documentation exported to Google Docs.");
+  } catch (err) {
+    if (err.message === "GOOGLE_NOT_CONNECTED")
+      return fail(
+        res,
+        "GOOGLE_NOT_CONNECTED",
+        "Connect your Google account first via Settings → Export Connections.",
+        403,
+      );
+    if (err.message?.includes("GOOGLE_DOCS_CLIENT_ID"))
+      return fail(res, "GOOGLE_DOCS_NOT_CONFIGURED", err.message, 503);
+    return handleErr(res, err, "exportGoogleDocs");
   }
 }
