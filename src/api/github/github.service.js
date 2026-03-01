@@ -200,13 +200,22 @@ export async function getUserRepos(
     perPage = 30,
     type = "all", // all | owner | member | public | private
     sort = "updated", // created | updated | pushed | full_name
+    org = null,      // if provided, fetch org repos instead of /user/repos
   } = {},
 ) {
   const token = await getDecryptedToken(userId);
 
-  const res = await axios.get(`${GH_API}/user/repos`, {
+  // Org repos use a different endpoint and don't support the 'type' filter
+  const endpoint = org
+    ? `${GH_API}/orgs/${encodeURIComponent(org)}/repos`
+    : `${GH_API}/user/repos`;
+  const params = org
+    ? { sort, per_page: perPage, page }
+    : { type, sort, per_page: perPage, page };
+
+  const res = await axios.get(endpoint, {
     headers: ghHeaders(token),
-    params: { type, sort, per_page: perPage, page },
+    params,
   });
 
   const repos = res.data.map((r) => ({
@@ -247,6 +256,27 @@ export async function getConnectionStatus(userId) {
     scopes: record.scopes,
     connectedAt: record.connectedAt,
   };
+}
+
+// ── List organisations ───────────────────────────────────────
+
+/**
+ * Return all GitHub organisations the user belongs to.
+ * @param {string} userId
+ * @returns {Array<{ id, login, description, avatarUrl }>}
+ */
+export async function getUserOrgs(userId) {
+  const token = await getDecryptedToken(userId);
+  const res = await axios.get(`${GH_API}/user/orgs`, {
+    headers: ghHeaders(token),
+    params: { per_page: 100 },
+  });
+  return res.data.map((org) => ({
+    id: org.id,
+    login: org.login,
+    description: org.description || null,
+    avatarUrl: org.avatar_url,
+  }));
 }
 
 // ── Disconnect ────────────────────────────────────────────────

@@ -25,6 +25,7 @@ router.use(protect, apiLimiter);
 
 router.get("/oauth/start", wrap(ctrl.oauthStart));
 router.get("/repos", wrap(ctrl.listRepos));
+router.get("/orgs", wrap(ctrl.listOrgs));
 router.get("/status", wrap(ctrl.connectionStatus));
 router.delete("/disconnect", wrap(ctrl.disconnect));
 

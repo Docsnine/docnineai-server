@@ -70,6 +70,7 @@ export async function listRepos(req, res) {
   );
   const type = req.query.type || "all"; // all | owner | member | public | private
   const sort = req.query.sort || "updated"; // created | updated | pushed | full_name
+  const org = req.query.org || null;   // if set, fetch from /orgs/{org}/repos
 
   try {
     const result = await githubService.getUserRepos(req.user.userId, {
@@ -77,6 +78,7 @@ export async function listRepos(req, res) {
       perPage,
       type,
       sort,
+      org,
     });
     return ok(res, result);
   } catch (err) {
@@ -85,7 +87,17 @@ export async function listRepos(req, res) {
     return serverError(res, err, "listRepos");
   }
 }
-
+// ── GET /github/orgs ──────────────────────────────────────
+export async function listOrgs(req, res) {
+  try {
+    const orgs = await githubService.getUserOrgs(req.user.userId);
+    return ok(res, { orgs });
+  } catch (err) {
+    if (err.code === "GITHUB_NOT_CONNECTED")
+      return fail(res, err.code, err.message, err.status);
+    return serverError(res, err, "listOrgs");
+  }
+}
 // ── GET /github/status ────────────────────────────────────────
 export async function connectionStatus(req, res) {
   try {
