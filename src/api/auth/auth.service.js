@@ -235,6 +235,69 @@ export async function resetPassword({ token, password }) {
   return user;
 }
 
+// ── Update profile ───────────────────────────────────────────
+
+/**
+ * Update name and/or email for the authenticated user.
+ * @param {string} userId
+ * @param {{ name?: string, email?: string }}
+ */
+export async function updateProfile(userId, { name, email }) {
+  const user = await User.findById(userId);
+  if (!user) {
+    const err = new Error("User not found.");
+    err.code = "USER_NOT_FOUND";
+    err.status = 404;
+    throw err;
+  }
+
+  if (email && email !== user.email) {
+    const existing = await User.findOne({ email, _id: { $ne: userId } });
+    if (existing) {
+      const err = new Error("This email address is already in use.");
+      err.code = "EMAIL_TAKEN";
+      err.status = 409;
+      throw err;
+    }
+  }
+
+  if (name !== undefined) user.name = name;
+  if (email !== undefined) user.email = email;
+  await user.save();
+  return user;
+}
+
+// ── Change password ───────────────────────────────────────────
+
+/**
+ * Verify currentPassword and set a new password.
+ * Invalidates the current refresh token (single-session policy).
+ * @param {string} userId
+ * @param {{ currentPassword: string, newPassword: string }}
+ */
+export async function changePassword(userId, { currentPassword, newPassword }) {
+  const user = await User.findById(userId).select("+password");
+  if (!user) {
+    const err = new Error("User not found.");
+    err.code = "USER_NOT_FOUND";
+    err.status = 404;
+    throw err;
+  }
+
+  const match = await user.comparePassword(currentPassword);
+  if (!match) {
+    const err = new Error("Current password is incorrect.");
+    err.code = "INVALID_CREDENTIALS";
+    err.status = 401;
+    throw err;
+  }
+
+  user.password = newPassword; // pre-save hook re-hashes
+  user.refreshTokenHash = undefined; // invalidate active sessions
+  await user.save();
+  return user;
+}
+
 // ── Get current user ──────────────────────────────────────────
 
 /**

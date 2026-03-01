@@ -178,6 +178,22 @@ export async function getProjectById({ projectId, userId }) {
   return project;
 }
 
+/**
+ * Return the stored pipeline event log for a project.
+ * Requires ownership. The events field is select:false so we must
+ * explicitly request it here.
+ */
+export async function getProjectEvents({ projectId, userId }) {
+  const project = await Project.findOne({ _id: projectId, userId }).select("status jobId events");
+  if (!project)
+    throw domainError("Project not found.", "PROJECT_NOT_FOUND", 404);
+  return {
+    events: project.events || [],
+    status: project.status,
+    jobId: project.jobId,
+  };
+}
+
 export async function deleteProject({ projectId, userId }) {
   const project = await assertOwnership(projectId, userId);
   if (project.status === "running" || project.status === "queued")

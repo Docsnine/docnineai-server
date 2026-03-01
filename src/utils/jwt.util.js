@@ -93,13 +93,25 @@ export function verifyRefreshToken(token) {
 /**
  * Cookie options for the refresh token.
  * Returns a new object each time so callers can safely mutate (e.g. clearCookie).
- * `secure` is read at call-time so NODE_ENV works correctly after dotenv.
+ * `secure` and `sameSite` are read at call-time so NODE_ENV works correctly after dotenv.
+ *
+ * WHY sameSite differs per environment:
+ *   In production the frontend and backend are on different Vercel domains
+ *   (cross-origin). The SameSite=Strict policy prevents the browser from
+ *   attaching the cookie to any cross-site request, so POST /auth/refresh
+ *   never receives the cookie and every page-refresh logs the user out.
+ *   SameSite=None + Secure=true is the correct configuration for httpOnly
+ *   cookies that must be sent in authenticated cross-origin API calls.
+ *
+ *   In development everything is proxied through Vite on localhost (same
+ *   origin), so SameSite=Strict is safe and Secure is unnecessary.
  */
 export function getRefreshCookieOpts() {
+  const isProd = process.env.NODE_ENV === "production";
   return {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
+    secure: isProd,
+    sameSite: isProd ? "none" : "strict",
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in ms
     path: "/auth", // cookie only sent to /auth/* routes
   };

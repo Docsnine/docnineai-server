@@ -199,6 +199,27 @@ export async function syncProject(req, res) {
 // SSE STREAM
 // ─────────────────────────────────────────────────────────────
 
+// ───────────────────────────────────────────────────────────────
+// PIPELINE EVENTS (persisted log)
+// ───────────────────────────────────────────────────────────────
+
+/**
+ * GET /projects/:id/events
+ * Returns the persisted pipeline event log for a project.
+ * Events are stored per-project in MongoDB (last 200, select:false).
+ */
+export async function getProjectEvents(req, res) {
+  try {
+    const result = await projectService.getProjectEvents({
+      projectId: req.params.id,
+      userId: req.user.userId,
+    });
+    return ok(res, result);
+  } catch (err) {
+    return handleErr(res, err, "getProjectEvents");
+  }
+}
+
 export async function streamProject(req, res) {
   const projectId = req.params.id;
 

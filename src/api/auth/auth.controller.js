@@ -132,3 +132,31 @@ export async function getMe(req, res) {
     return serverError(res, err, "getMe");
   }
 }
+
+// ── PATCH /auth/profile ───────────────────────────────────────
+export async function updateProfile(req, res) {
+  const { name, email } = req.body;
+  try {
+    const user = await authService.updateProfile(req.user.userId, { name, email });
+    return ok(res, { user }, "Profile updated successfully.");
+  } catch (err) {
+    if (["USER_NOT_FOUND", "EMAIL_TAKEN"].includes(err.code))
+      return fail(res, err.code, err.message, err.status);
+    return serverError(res, err, "updateProfile");
+  }
+}
+
+// ── POST /auth/change-password ────────────────────────────────
+export async function changePassword(req, res) {
+  const { currentPassword, newPassword } = req.body;
+  try {
+    await authService.changePassword(req.user.userId, { currentPassword, newPassword });
+    // Clear the refresh cookie — user must log in again with the new password.
+    res.clearCookie("refreshToken", { ...getRefreshCookieOpts(), maxAge: 0 });
+    return ok(res, null, "Password changed successfully. Please log in again.");
+  } catch (err) {
+    if (["USER_NOT_FOUND", "INVALID_CREDENTIALS"].includes(err.code))
+      return fail(res, err.code, err.message, err.status);
+    return serverError(res, err, "changePassword");
+  }
+}

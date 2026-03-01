@@ -147,4 +147,32 @@ export const rules = {
       .isIn(["archived"])
       .withMessage("Only 'archived' status can be set via PATCH"),
   ],
+
+  /** PATCH /auth/profile */
+  updateProfile: [
+    body("name")
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage("Name cannot be empty")
+      .isLength({ max: 80 })
+      .withMessage("Name must be 80 characters or fewer"),
+    body("email")
+      .optional()
+      .trim()
+      .isEmail()
+      .withMessage("Email is not valid")
+      .normalizeEmail(),
+  ],
+
+  /** POST /auth/change-password */
+  changePassword: [
+    body("currentPassword").notEmpty().withMessage("Current password is required"),
+    passwordField("newPassword"),
+    body("confirmNewPassword")
+      .notEmpty()
+      .withMessage("Confirm new password is required")
+      .custom((val, { req }) => val === req.body.newPassword)
+      .withMessage("Passwords do not match"),
+  ],
 };

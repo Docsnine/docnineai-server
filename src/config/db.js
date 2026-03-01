@@ -21,11 +21,7 @@ let _connectionPromise = null;
 export async function connectDB() {
   const URI = process.env.MONGODB_URI;
   if (!URI) {
-    throw new Error(
-      "MONGODB_URI is required in environment variables.\n" +
-        "  Local:  mongodb://localhost:27017/project-documentor\n" +
-        "  Vercel: add MONGODB_URI in Project → Settings → Environment Variables",
-    );
+    throw new Error("MONGODB_URI is required in environment variables.\n");
   }
 
   // Already fully connected — reuse

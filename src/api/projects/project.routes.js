@@ -75,7 +75,8 @@ router.post("/:id/sync", validateMongoId, wrap(ctrl.syncProject));
 
 // SSE (not wrapped — streaming response)
 router.get("/:id/stream", validateMongoId, ctrl.streamProject);
-
+// Persisted event log
+router.get("/:id/events", validateMongoId, wrap(ctrl.getProjectEvents));
 // ── Document editing ──────────────────────────────────────────
 router.patch(
   "/:id/docs/:section",
