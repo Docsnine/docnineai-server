@@ -138,4 +138,8 @@ router.get("/:id/export/google-docs/status", validateMongoId, wrap(ctrl.googleDo
 router.delete("/:id/export/google-docs", validateMongoId, wrap(ctrl.googleDocsDisconnect));
 router.post("/:id/export/google-docs", validateMongoId, wrap(ctrl.exportGoogleDocs));
 
+// ── Chat (streaming SSE — chatHandler not wrapped; resetChat is wrapped) ──────
+router.post("/:id/chat", validateMongoId, ctrl.chatHandler);
+router.delete("/:id/chat", validateMongoId, wrap(ctrl.resetChat));
+
 export default router;

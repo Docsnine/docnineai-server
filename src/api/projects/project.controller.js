@@ -629,3 +629,100 @@ export async function exportGoogleDocs(req, res) {
     return handleErr(res, err, "exportGoogleDocs");
   }
 }
+
+// ─────────────────────────────────────────────────────────────
+// CHAT (streaming SSE)
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * POST /projects/:id/chat
+ * Streams LLM tokens via SSE. NOT wrapped — it owns the response lifecycle.
+ * Event shapes:
+ *   data: { type: "token",  token: "..." }
+ *   data: { type: "done",   historyLength: N }
+ *   data: { type: "error",  message: "..." }
+ */
+export async function chatHandler(req, res) {
+  const { message } = req.body;
+  if (!message?.trim()) {
+    return res.status(422).json({
+      success: false,
+      error: { code: "VALIDATION_ERROR", message: "message is required" },
+    });
+  }
+
+  let project;
+  try {
+    project = await projectService.getProjectById({
+      projectId: req.params.id,
+      userId: req.user.userId,
+    });
+  } catch (err) {
+    return handleErr(res, err, "chat");
+  }
+
+  if (!project.chatSessionId) {
+    return res.status(409).json({
+      success: false,
+      error: {
+        code: "CHAT_SESSION_NOT_FOUND",
+        message: "No chat session available. Run the documentation pipeline first.",
+      },
+    });
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+
+  const { chatStream, ensureSession } = await import("../../services/chat.service.js");
+
+  // Rebuild the in-memory session from persisted output if the server was
+  // restarted since the pipeline last ran (sessions are in-memory only).
+  const effectiveOutput = Object.fromEntries(
+    ["readme", "apiReference", "schemaDocs", "internalDocs", "securityReport", "otherDocs"]
+      .map((k) => [k, project.editedOutput?.[k] || project.output?.[k] || ""])
+  );
+  ensureSession({
+    jobId: project.chatSessionId,
+    output: effectiveOutput,
+    meta: project.meta,
+  });
+
+  const send = (obj) => {
+    try { res.write(`data: ${JSON.stringify(obj)}\n\n`); } catch { /* client gone */ }
+  };
+
+  await chatStream({
+    jobId: project.chatSessionId,
+    message: message.trim(),
+    onToken(token) { send({ type: "token", token }); },
+    onDone(result) { send({ type: "done", ...result }); res.end(); },
+    onError(err)  { send({ type: "error", message: err.message }); res.end(); },
+  });
+}
+
+/**
+ * DELETE /projects/:id/chat
+ * Clears the in-memory conversation history for this project's session.
+ */
+export async function resetChat(req, res) {
+  let project;
+  try {
+    project = await projectService.getProjectById({
+      projectId: req.params.id,
+      userId: req.user.userId,
+    });
+  } catch (err) {
+    return handleErr(res, err, "resetChat");
+  }
+
+  if (project.chatSessionId) {
+    const { resetSession } = await import("../../services/chat.service.js");
+    resetSession(project.chatSessionId);
+  }
+
+  return ok(res, null, "Chat history cleared.");
+}

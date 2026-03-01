@@ -197,3 +197,74 @@ export function getSuggestedQuestions(output) {
     })
     .slice(0, 5);
 }
+
+// ── Reset session history ─────────────────────────────────────
+export function resetSession(jobId) {
+  const session = sessions.get(jobId);
+  if (session) session.history = [];
+}
+
+// ── Ensure session exists (auto-restore after server restart) ─
+// If the session is already in memory this is a no-op.
+// Otherwise it rebuilds the docs context from the persisted project output.
+export function ensureSession({ jobId, output, meta }) {
+  if (sessions.has(jobId)) return;
+  createChatSession({ jobId, output, meta });
+}
+
+// ── Streaming chat ────────────────────────────────────────────
+// Calls onToken for each streamed token, onDone when complete.
+export async function chatStream({ jobId, message, onToken, onDone, onError }) {
+  const session = sessions.get(jobId);
+  if (!session) {
+    onError(new Error("Chat session not found. Generate docs first."));
+    return;
+  }
+
+  const { docsContext, history } = session;
+  const relevantContext = selectRelevantContext(message, docsContext);
+
+  const SYSTEM_PROMPT = `You are an expert developer assistant with deep knowledge of this specific codebase.
+You have been given the project documentation below as your knowledge base.
+Answer questions accurately based on the documentation. If something is not covered in the docs, say so clearly.
+Be concise but complete. Format code examples with backticks.
+
+=== CODEBASE DOCUMENTATION ===
+${relevantContext}
+=== END DOCUMENTATION ===`;
+
+  const trimmedHistory = history.slice(-MAX_HISTORY_TURNS);
+  const messages = [
+    { role: "system", content: SYSTEM_PROMPT },
+    ...trimmedHistory,
+    { role: "user", content: message },
+  ];
+
+  const { client, MODEL } = await import("../config/llm.js");
+  let fullReply = "";
+  try {
+    const stream = await client.chat.completions.create({
+      model: MODEL,
+      messages,
+      temperature: 0.1,
+      stream: true,
+    });
+
+    for await (const chunk of stream) {
+      const token = chunk.choices[0]?.delta?.content ?? "";
+      if (token) {
+        fullReply += token;
+        onToken(token);
+      }
+    }
+
+    // Update history ring buffer
+    history.push({ role: "user", content: message });
+    history.push({ role: "assistant", content: fullReply });
+    if (history.length > MAX_HISTORY_TURNS * 2) history.splice(0, 2);
+
+    onDone({ historyLength: history.length / 2 });
+  } catch (err) {
+    onError(err);
+  }
+}
