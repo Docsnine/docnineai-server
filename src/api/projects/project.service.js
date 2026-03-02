@@ -17,6 +17,8 @@
 import { randomUUID } from "crypto";
 import { Project } from "../../models/Project.js";
 import { DocumentVersion, SECTIONS } from "../../models/DocumentVersion.js";
+import { ProjectShare } from "../../models/ProjectShare.js";
+import { User } from "../../models/User.js";
 
 import {
   registerJob,
@@ -51,9 +53,7 @@ export async function recoverOrphanedJobs() {
     if (orphans.length === 0) return;
 
     const { jobs } = await import("../../services/job-registry.service.js");
-    const RECOVERY_MSG =
-      "Pipeline interrupted — server was restarted while this job was in progress. " +
-      "Use the Retry button or POST /projects/:id/retry to re-run.";
+    const RECOVERY_MSG = "Pipeline interrupted, " + "Retry again later";
 
     const orphanIds = [];
     for (const p of orphans) {
@@ -159,7 +159,7 @@ export async function createProject({ userId, repoUrl }) {
     repoName,
     jobId,
     status: "running",
-    search_language: "english", 
+    search_language: "english",
   });
 
   registerJob(jobId);
@@ -227,10 +227,33 @@ export async function listProjects({
 }
 
 export async function getProjectById({ projectId, userId }) {
-  const project = await Project.findOne({ _id: projectId, userId });
-  if (!project)
+  // First try as owner
+  let project = await Project.findOne({ _id: projectId, userId });
+  if (project) {
+    project._shareRole = "owner";
+    return project;
+  }
+
+  // Fall back to shared access check
+  const anyProject = await Project.findById(projectId);
+  if (!anyProject)
     throw domainError("Project not found.", "PROJECT_NOT_FOUND", 404);
-  return project;
+
+  const user = await User.findById(userId).select("email").lean();
+  const share = await ProjectShare.findOne({
+    projectId,
+    status: "accepted",
+    $or: [
+      { inviteeUserId: userId },
+      ...(user ? [{ inviteeEmail: user.email }] : []),
+    ],
+  }).lean();
+
+  if (!share)
+    throw domainError("Project not found.", "PROJECT_NOT_FOUND", 404);
+
+  anyProject._shareRole = share.role;
+  return anyProject;
 }
 
 /**
@@ -239,7 +262,12 @@ export async function getProjectById({ projectId, userId }) {
  * explicitly request it here.
  */
 export async function getProjectEvents({ projectId, userId }) {
-  const project = await Project.findOne({ _id: projectId, userId }).select("status jobId events");
+  // Allow both owners and shared members to view events
+  await getProjectById({ projectId, userId }); // throws if no access
+
+  const project = await Project.findById(projectId).select(
+    "status jobId events",
+  );
   if (!project)
     throw domainError("Project not found.", "PROJECT_NOT_FOUND", 404);
   return {
@@ -600,8 +628,11 @@ async function runPipeline({ project, normalised, jobId }) {
       update.errorMessage = result.error || "Unknown pipeline error";
     }
 
-    await Project.findByIdAndUpdate(project._id, { ...update, search_language: "english" });
-    
+    await Project.findByIdAndUpdate(project._id, {
+      ...update,
+      search_language: "english",
+    });
+
     finishJob(jobId, result);
   } catch (err) {
     await Project.findByIdAndUpdate(project._id, {
@@ -667,14 +698,20 @@ async function runSync({ project, jobId, forceFullRun, webhookChangedFiles }) {
       };
       if (!result.success) update.errorMessage = result.error;
 
-      await Project.findByIdAndUpdate(project._id, { ...update, search_language: "english" });
+      await Project.findByIdAndUpdate(project._id, {
+        ...update,
+        search_language: "english",
+      });
       finishJob(jobId, result);
       return;
     }
 
     // Incremental success — apply the prepared update
     const update = { ...syncResult._update, status: "done" };
-    await Project.findByIdAndUpdate(project._id, { ...update, search_language: "english" });
+    await Project.findByIdAndUpdate(project._id, {
+      ...update,
+      search_language: "english",
+    });
     finishJob(jobId, { success: true, ...syncResult });
   } catch (err) {
     await Project.findByIdAndUpdate(project._id, {

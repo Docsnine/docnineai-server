@@ -24,11 +24,21 @@
 //   GET    /projects/:id/export/pdf
 //   GET    /projects/:id/export/yaml
 //   POST   /projects/:id/export/notion
+//
+//   ── Attachments (Other Docs) ─────────────────────────────────
+//   GET    /projects/:id/attachments
+//   POST   /projects/:id/attachments          (multipart/form-data, field: file)
+//   GET    /projects/:id/attachments/:attachmentId   (stream / download)
+//   PATCH  /projects/:id/attachments/:attachmentId   (update description)
+//   DELETE /projects/:id/attachments/:attachmentId
 // =============================================================
 
 import { Router } from "express";
 import { param, body } from "express-validator";
+import multer from "multer";
 import * as ctrl from "./project.controller.js";
+import * as attachmentCtrl from "./attachment.controller.js";
+import * as shareCtrl from "./share.controller.js";
 import { protect } from "../../middleware/auth.middleware.js";
 import { rules, validate } from "../../middleware/validate.middleware.js";
 import { apiLimiter } from "../../middleware/rateLimiter.middleware.js";
@@ -37,6 +47,13 @@ import { SECTIONS } from "../../models/DocumentVersion.js";
 
 const router = Router();
 router.use(protect, apiLimiter);
+
+// ── Multer — in-memory storage for file uploads ───────────────
+// 10 MB limit; all file types accepted (content-type checked in controller).
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
 
 // ── Param validators ──────────────────────────────────────────
 const validateMongoId = [
@@ -54,6 +71,9 @@ const validateVersionId = [
   param("versionId").isMongoId().withMessage("Invalid version ID"),
   validate,
 ];
+
+// ── Shared-with-me (must come before /:id to avoid param collision) ──────────
+router.get("/shared", wrap(shareCtrl.getSharedProjects));
 
 // ── Collection ────────────────────────────────────────────────
 router.post("/", rules.createProject, validate, wrap(ctrl.createProject));
@@ -141,5 +161,62 @@ router.post("/:id/export/google-docs", validateMongoId, wrap(ctrl.exportGoogleDo
 // ── Chat (streaming SSE — chatHandler not wrapped; resetChat is wrapped) ──────
 router.post("/:id/chat", validateMongoId, ctrl.chatHandler);
 router.delete("/:id/chat", validateMongoId, wrap(ctrl.resetChat));
+
+// ── Sharing ───────────────────────────────────────────────────
+const validateShareId = [
+  param("shareId").isMongoId().withMessage("Invalid share ID"),
+  validate,
+];
+
+// Accept an invite — requires the user be logged in
+router.post("/share/accept/:token", wrap(shareCtrl.acceptInvite));
+
+router.post("/:id/share", validateMongoId, wrap(shareCtrl.inviteUsers));
+router.get("/:id/share", validateMongoId, wrap(shareCtrl.listAccess));
+router.patch("/:id/share/:shareId", validateMongoId, validateShareId, wrap(shareCtrl.changeRole));
+router.delete("/:id/share/:shareId", validateMongoId, validateShareId, wrap(shareCtrl.revokeAccess));
+router.post("/:id/share/:shareId/resend", validateMongoId, validateShareId, wrap(shareCtrl.resendInvite));
+router.delete("/:id/share/:shareId/cancel", validateMongoId, validateShareId, wrap(shareCtrl.cancelInvite));
+
+// ── Attachments (Other Docs) ──────────────────────────────────
+const validateAttachmentId = [
+  param("attachmentId").isMongoId().withMessage("Invalid attachment ID"),
+  validate,
+];
+
+router.get(
+  "/:id/attachments",
+  validateMongoId,
+  wrap(attachmentCtrl.listAttachments),
+);
+router.post(
+  "/:id/attachments",
+  validateMongoId,
+  upload.single("file"),
+  wrap(attachmentCtrl.uploadAttachment),
+);
+// Download / preview — not wrapped (binary streaming response)
+router.get(
+  "/:id/attachments/:attachmentId",
+  validateMongoId,
+  validateAttachmentId,
+  attachmentCtrl.downloadAttachment,
+);
+router.patch(
+  "/:id/attachments/:attachmentId",
+  validateMongoId,
+  validateAttachmentId,
+  [
+    body("description").isString().withMessage("description must be a string"),
+    validate,
+  ],
+  wrap(attachmentCtrl.updateAttachment),
+);
+router.delete(
+  "/:id/attachments/:attachmentId",
+  validateMongoId,
+  validateAttachmentId,
+  wrap(attachmentCtrl.deleteAttachment),
+);
 
 export default router;

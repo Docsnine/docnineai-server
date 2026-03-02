@@ -99,6 +99,34 @@ export async function sendPasswordResetEmail({ to, token, name }) {
   });
 }
 
+/**
+ * Send a project share invitation.
+ * @param {{ to: string, inviterName: string, projectName: string, role: string, token: string }} opts
+ */
+export async function sendProjectInviteEmail({
+  to,
+  inviterName,
+  projectName,
+  role,
+  token,
+}) {
+  const link = `${APP_URL}/share/accept/${token}`;
+  const roleLabel = role === "editor" ? "Editor" : "Viewer";
+  await getTransporter().sendMail({
+    from: FROM,
+    to,
+    subject: `${inviterName} invited you to "${projectName}" on Docnine`,
+    text: `Hi,\n\n${inviterName} has invited you to collaborate on "${projectName}" as ${roleLabel}.\n\nAccept the invitation:\n${link}\n\nThis link expires in 7 days.`,
+    html: emailTemplate({
+      title: `You've been invited to "${projectName}"`,
+      body: `<p><strong>${inviterName}</strong> has invited you to collaborate on the <strong>${projectName}</strong> project as <strong>${roleLabel}</strong>.</p><p>Click the button below to accept the invitation. This link expires in <strong>7 days</strong>.</p>`,
+      ctaText: "Accept Invitation",
+      ctaUrl: link,
+      footer: "If you weren't expecting this invite, you can safely ignore it.",
+    }),
+  });
+}
+
 // ── Minimal branded HTML template ─────────────────────────────
 function emailTemplate({ title, body, ctaText, ctaUrl, footer }) {
   return `<!DOCTYPE html>

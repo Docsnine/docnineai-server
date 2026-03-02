@@ -137,6 +137,7 @@ export async function getProject(req, res) {
       effectiveOutput: project.effectiveOutput,
       editedSections: project.editedSections,
       lastSyncedCommit: project.lastDocumentedCommit,
+      shareRole: project._shareRole ?? "owner", // "owner" | "editor" | "viewer"
     });
   } catch (err) {
     return handleErr(res, err, "getProject");
