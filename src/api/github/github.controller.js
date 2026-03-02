@@ -40,12 +40,12 @@ export async function oauthCallback(req, res) {
 
   if (oauthError) {
     const msg = encodeURIComponent(`GitHub denied access: ${oauthError}`);
-    return res.redirect(`${frontendUrl}/?github=error&msg=${msg}`);
+    return res.redirect(`${frontendUrl}/projects?github=error&msg=${msg}`);
   }
 
   if (!code || !state) {
     const msg = encodeURIComponent("Missing code or state — please try again.");
-    return res.redirect(`${frontendUrl}/?github=error&msg=${msg}`);
+    return res.redirect(`${frontendUrl}/projects?github=error&msg=${msg}`);
   }
 
   try {
@@ -54,10 +54,10 @@ export async function oauthCallback(req, res) {
       state,
     });
     const user = encodeURIComponent(githubUsername);
-    return res.redirect(`${frontendUrl}/?github=connected&user=${user}`);
+    return res.redirect(`${frontendUrl}/projects?github=connected&user=${user}`);
   } catch (err) {
     const msg = encodeURIComponent(err.message || "GitHub connection failed.");
-    return res.redirect(`${frontendUrl}/?github=error&msg=${msg}`);
+    return res.redirect(`${frontendUrl}/projects?github=error&msg=${msg}`);
   }
 }
 
