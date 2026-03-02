@@ -23,7 +23,62 @@ import {
   pushEvent,
   finishJob,
   failJob,
+  recoverLostJob,
 } from "../../services/job-registry.service.js";
+
+// ─────────────────────────────────────────────────────────────
+// STARTUP RECOVERY
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Called once at startup. Finds any projects that were left in
+ * "running" or "queued" state (i.e. the server died mid-pipeline),
+ * marks them as "error" in the DB, and registers a synthetic lost
+ * job in the job-registry so that SSE clients connecting after the
+ * restart receive a proper error event instead of the generic
+ * "pipeline state lost" message.
+ *
+ * This is safe to call multiple times — it skips projects whose
+ * jobId is already present in the in-memory jobs Map (i.e. a genuine
+ * pipeline that was already in-flight before this function ran).
+ */
+export async function recoverOrphanedJobs() {
+  try {
+    const orphans = await Project.find({
+      status: { $in: ["running", "queued"] },
+    }).select("_id jobId status");
+
+    if (orphans.length === 0) return;
+
+    const { jobs } = await import("../../services/job-registry.service.js");
+    const RECOVERY_MSG =
+      "Pipeline interrupted — server was restarted while this job was in progress. " +
+      "Use the Retry button or POST /projects/:id/retry to re-run.";
+
+    const orphanIds = [];
+    for (const p of orphans) {
+      // Skip if already registered (another concurrent startup race)
+      if (p.jobId && jobs.has(p.jobId)) continue;
+      if (p.jobId) recoverLostJob(p.jobId, RECOVERY_MSG);
+      orphanIds.push(p._id);
+    }
+
+    if (orphanIds.length > 0) {
+      await Project.updateMany(
+        { _id: { $in: orphanIds } },
+        {
+          status: "error",
+          errorMessage: RECOVERY_MSG,
+        },
+      );
+      console.log(
+        `[recovery] Marked ${orphanIds.length} orphaned project(s) as error and registered synthetic jobs.`,
+      );
+    }
+  } catch (err) {
+    console.error("[recovery] Failed to recover orphaned jobs:", err.message);
+  }
+}
 
 // ── Lazy loaders ──────────────────────────────────────────────
 let _orchestrate = null;

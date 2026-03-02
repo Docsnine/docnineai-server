@@ -5,6 +5,7 @@ import cookieParser from "cookie-parser";
 
 import { connectDB } from "./config/db.js";
 import apiRouter from "./api/router.js";
+import { recoverOrphanedJobs } from "./api/projects/project.service.js";
 
 const app = express();
 
@@ -18,12 +19,15 @@ app.set("trust proxy", 1);
 let initialized = false;
 
 /**
- * Initialize once per cold start
- * (serverless-safe)
+ * Initialize once per cold start (serverless-safe).
+ * After DB connects, recover any projects that were left in
+ * "running"/"queued" state from a previous server instance.
  */
 async function initOnce() {
   if (initialized) return;
   await connectDB();
+  // Best-effort recovery — don't block the request if it fails
+  await recoverOrphanedJobs();
   initialized = true;
 }
 

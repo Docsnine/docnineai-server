@@ -264,9 +264,14 @@ export async function streamProject(req, res) {
   const job = jobs.get(jobId);
 
   if (!job) {
+    // Job not in memory. Two cases:
+    //  1. Project is done/error — serve a synthetic result from DB (normal path
+    //     after recovery re-registration was skipped or a very old jobId).
+    //  2. Project is somehow still "running" — this should not happen after
+    //     recoverOrphanedJobs() runs at startup, but guard defensively.
     const syntheticResult = {
       success: project.status === "done",
-      output: project.effectiveOutput, // serve merged (user edits + AI)
+      output: project.effectiveOutput,
       stats: project.stats,
       security: project.security,
       techStack: project.techStack,
@@ -274,16 +279,20 @@ export async function streamProject(req, res) {
       chat: project.chatSessionId ? { sessionId: project.chatSessionId } : null,
       error: project.errorMessage || null,
     };
+
     if (project.status === "done" || project.status === "error") {
       res.write(
         `data: ${JSON.stringify({ step: "done", result: syntheticResult })}\n\n`,
       );
     } else {
+      // Still running but no in-memory job — server restarted mid-pipeline.
+      // Tell the client clearly and include a retry hint.
       res.write(
         `data: ${JSON.stringify({
           step: "error",
           status: "error",
-          msg: "Pipeline state lost (server restarted). Use POST /projects/:id/retry or /sync to re-run.",
+          msg: "Pipeline was interrupted (server restart). Please retry this project.",
+          retryUrl: `/projects/${project._id}/retry`,
         })}\n\n`,
       );
     }

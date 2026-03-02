@@ -72,6 +72,30 @@ export function finishJob(jobId, result) {
 }
 
 /**
+ * Register a pre-failed job that represents state lost on server restart.
+ * This lets the SSE stream endpoint serve a proper error event instead
+ * of the generic "state lost" message.
+ *
+ * @param {string} jobId
+ * @param {string} [message]
+ */
+export function recoverLostJob(jobId, message = "Pipeline interrupted by server restart.") {
+  const errorEvent = {
+    step: "error",
+    status: "error",
+    msg: message,
+    ts: Date.now(),
+  };
+  jobs.set(jobId, {
+    status: "error",
+    events: [errorEvent],
+    result: { success: false, error: message },
+  });
+  // No streams slot — any connecting client will see the buffered error
+  // event immediately and the job will be served as done (error).
+}
+
+/**
  * Mark a job as errored from an uncaught exception.
  * @param {string} jobId
  * @param {Error}  err
