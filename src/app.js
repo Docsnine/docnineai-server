@@ -42,9 +42,24 @@ app.use(async (req, res, next) => {
 });
 
 // ── CORS ───────────────────────────────────
+// In production, restrict to the known frontend origin so the browser
+// receives a concrete Access-Control-Allow-Origin (not "*"), which is
+// required for credentialed cross-origin requests (cookies).
+// In development, reflect the request origin for convenience.
+const FRONTEND_ORIGIN = process.env.FRONTEND_URL || "http://localhost:3000";
 app.use(
   cors({
-    origin: true,
+    origin: (incomingOrigin, callback) => {
+      // Allow requests with no origin (curl, Postman, server-to-server)
+      if (!incomingOrigin) return callback(null, true);
+      // Always allow the configured frontend origin
+      if (incomingOrigin === FRONTEND_ORIGIN) return callback(null, true);
+      // In development also allow any localhost origin
+      if (process.env.NODE_ENV !== "production" && incomingOrigin.startsWith("http://localhost")) {
+        return callback(null, true);
+      }
+      callback(new Error(`CORS: origin ${incomingOrigin} not allowed`));
+    },
     credentials: true,
   }),
 );
@@ -60,6 +75,28 @@ app.use(morgan("dev"));
 // ── Health ─────────────────────────────────
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
+});
+
+// ── Diagnostic (non-sensitive) ─────────────
+// Returns which required env vars are set (true/false, no values).
+// Useful for quickly spotting missing Vercel environment variables.
+app.get("/health/check", (_req, res) => {
+  const check = (v) => !!process.env[v];
+  res.json({
+    env: process.env.NODE_ENV || "(not set)",
+    frontend_url: process.env.FRONTEND_URL || "(not set)",
+    vars: {
+      MONGODB_URI: check("MONGODB_URI"),
+      JWT_ACCESS_SECRET: check("JWT_ACCESS_SECRET"),
+      JWT_REFRESH_SECRET: check("JWT_REFRESH_SECRET"),
+      ENCRYPTION_KEY: check("ENCRYPTION_KEY"),
+      GITHUB_CLIENT_ID: check("GITHUB_CLIENT_ID"),
+      GITHUB_CLIENT_SECRET: check("GITHUB_CLIENT_SECRET"),
+      GITHUB_REDIRECT_URI: check("GITHUB_REDIRECT_URI"),
+      FRONTEND_URL: check("FRONTEND_URL"),
+      GROQ_API_KEY: check("GROQ_API_KEY"),
+    },
+  });
 });
 
 // ── API ────────────────────────────────────
