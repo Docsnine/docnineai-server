@@ -25,24 +25,7 @@
 6. [GitHub OAuth Setup](#github-oauth-setup)
 7. [Webhook & Auto-Sync](#webhook--auto-sync)
 8. [Deployment](#deployment)
-9. [Project Structure](#project-structure)
-
----
-
-## What's New in v3
-
-| Feature                       | Description                                                                          |
-| ----------------------------- | ------------------------------------------------------------------------------------ |
-| 🔐 **Auth**                    | JWT access tokens (15 min) + rotating refresh tokens (7 days, httpOnly cookie)       |
-| 🗄 **MongoDB persistence**     | Projects, users, and GitHub tokens stored in MongoDB                                 |
-| 🔄 **Refresh token rotation**  | Each refresh invalidates the previous token — replay attacks are detected            |
-| 🔒 **Encrypted GitHub tokens** | OAuth access tokens stored AES-256-GCM encrypted at rest                             |
-| 📁 **Project dashboard**       | Full CRUD — create, list, archive, delete, retry failed pipelines                    |
-| 📡 **Per-project SSE**         | `/projects/:id/stream` replays persisted events after page refresh or server restart |
-| ♻️  **Pipeline retry**         | `POST /projects/:id/retry` re-runs the pipeline on any error or completed project    |
-| 📦 **MongoDB-backed exports**  | PDF, YAML, and Notion exports work after server restarts (read from DB, not memory)  |
-| 🔗 **GitHub repo picker**      | OAuth-connected users can pick repos from a paginated list                           |
-| ✅ **v2 backward-compatible**  | All `/api/*` legacy routes still work with no changes required                       |
+9. [Project Structure](#project-structure)                  |
 
 ---
 
