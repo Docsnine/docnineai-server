@@ -32,20 +32,20 @@ export async function oauthStart(req, res) {
 // This is a BROWSER navigation, not a fetch() call — no Bearer token.
 // User identity comes from the signed `state` JWT set in oauthStart.
 //
-// On success/failure, redirect to the SPA's root with query params that
-// handleOAuthReturn() in the frontend reads and clears from the URL bar.
+// On success/failure, redirect the popup to the SPA's /github/oauth/complete
+// page, which postMessages the result to the parent window and closes itself.
 export async function oauthCallback(req, res) {
   const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
   const { code, state, error: oauthError } = req.query;
 
   if (oauthError) {
     const msg = encodeURIComponent(`GitHub denied access: ${oauthError}`);
-    return res.redirect(`${frontendUrl}/projects?github=error&msg=${msg}`);
+    return res.redirect(`${frontendUrl}/github/oauth/complete?github=error&msg=${msg}`);
   }
 
   if (!code || !state) {
     const msg = encodeURIComponent("Missing code or state — please try again.");
-    return res.redirect(`${frontendUrl}/projects?github=error&msg=${msg}`);
+    return res.redirect(`${frontendUrl}/github/oauth/complete?github=error&msg=${msg}`);
   }
 
   try {
@@ -54,10 +54,10 @@ export async function oauthCallback(req, res) {
       state,
     });
     const user = encodeURIComponent(githubUsername);
-    return res.redirect(`${frontendUrl}/projects?github=connected&user=${user}`);
+    return res.redirect(`${frontendUrl}/github/oauth/complete?github=connected&user=${user}`);
   } catch (err) {
     const msg = encodeURIComponent(err.message || "GitHub connection failed.");
-    return res.redirect(`${frontendUrl}/projects?github=error&msg=${msg}`);
+    return res.redirect(`${frontendUrl}/github/oauth/complete?github=error&msg=${msg}`);
   }
 }
 
