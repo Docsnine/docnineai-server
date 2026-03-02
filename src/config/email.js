@@ -8,14 +8,14 @@
 //   SMTP_USER     — SMTP username / API key
 //   SMTP_PASS     — SMTP password / API key
 //   EMAIL_FROM    — sender address, e.g. noreply@yourdomain.com
-//   APP_URL       — public URL, e.g. https://yourdomain.com (for links in emails)
+//   FRONTEND_URL  — public frontend URL, e.g. https://docnine.vercel.app (used in email links)
 //
 // Without SMTP config: emails are logged to console (dev mode).
 // ===================================================================
 
 import nodemailer from "nodemailer";
 
-const APP_URL = process.env.APP_URL || "http://localhost:3000";
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 const FROM =
   process.env.EMAIL_FROM ||
   "Docnine <noreply@project-documentor.dev>";
@@ -60,7 +60,7 @@ function getTransporter() {
  * @param {{ to: string, token: string, name: string }} opts
  */
 export async function sendVerificationEmail({ to, token, name }) {
-  const link = `${APP_URL}/auth/verify-email?token=${token}`;
+  const link = `${FRONTEND_URL}/verify?token=${token}`;
   await getTransporter().sendMail({
     from: FROM,
     to,
@@ -82,7 +82,7 @@ export async function sendVerificationEmail({ to, token, name }) {
  * @param {{ to: string, token: string, name: string }} opts
  */
 export async function sendPasswordResetEmail({ to, token, name }) {
-  const link = `${APP_URL}/auth/reset-password?token=${token}`;
+  const link = `${FRONTEND_URL}/reset-password?token=${token}`;
   await getTransporter().sendMail({
     from: FROM,
     to,
@@ -110,7 +110,7 @@ export async function sendProjectInviteEmail({
   role,
   token,
 }) {
-  const link = `${APP_URL}/share/accept/${token}`;
+  const link = `${FRONTEND_URL}/share/accept/${token}`;
   const roleLabel = role === "editor" ? "Editor" : "Viewer";
   await getTransporter().sendMail({
     from: FROM,
@@ -134,9 +134,6 @@ function emailTemplate({ title, body, ctaText, ctaUrl, footer }) {
 <head><meta charset="UTF-8"><title>${title}</title></head>
 <body style="font-family:system-ui,sans-serif;background:#0d1117;color:#e6edf3;margin:0;padding:40px 20px">
   <div style="max-width:480px;margin:0 auto;background:#161b22;border:1px solid #30363d;border-radius:12px;overflow:hidden">
-    <div style="background:#1f6feb;padding:20px 28px">
-      <p style="margin:0;font-size:1.1rem;font-weight:700;color:#fff">⚡ Docnine</p>
-    </div>
     <div style="padding:28px">
       <h2 style="margin:0 0 16px;font-size:1.1rem;color:#e6edf3">${title}</h2>
       <div style="font-size:.9rem;line-height:1.7;color:#8b949e">${body}</div>
