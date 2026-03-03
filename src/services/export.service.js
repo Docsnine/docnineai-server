@@ -171,7 +171,7 @@ export async function exportToPDF(res, { meta, output, stats, securityScore }) {
 }
 
 // ── Notion Export ─────────────────────────────────────────────
-export async function exportToNotion({ output, meta, stats, securityScore }) {
+export async function exportToNotion({ output, meta, stats, securityScore, apiKey, parentPageId }) {
   // Dynamic import — throws a clear error if @notionhq/client is not installed
   let NotionClient;
   try {
@@ -182,14 +182,14 @@ export async function exportToNotion({ output, meta, stats, securityScore }) {
     );
   }
 
-  if (!process.env.NOTION_API_KEY || !process.env.NOTION_PARENT_PAGE_ID) {
+  if (!apiKey || !parentPageId) {
     throw new Error(
-      "NOTION_API_KEY and NOTION_PARENT_PAGE_ID must be set in .env",
+      "NOTION_NOT_CONNECTED",
     );
   }
 
-  const notion = new NotionClient({ auth: process.env.NOTION_API_KEY });
-  const parentId = process.env.NOTION_PARENT_PAGE_ID;
+  const notion = new NotionClient({ auth: apiKey });
+  const parentId = parentPageId;
 
   const mainPage = await notion.pages.create({
     parent: { page_id: parentId },

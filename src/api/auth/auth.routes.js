@@ -65,6 +65,11 @@ router.get("/google-docs/status", protect, wrap(ctrl.googleDocsStatusForUser));
 router.get("/google-docs/start", protect, wrap(ctrl.googleDocsStart));
 router.delete("/google-docs", protect, wrap(ctrl.googleDocsDisconnectForUser));
 
+// ── Notion integration (per-user API key) ────────────────────
+router.post("/notion/connect", protect, wrap(ctrl.notionConnect));
+router.get("/notion/status", protect, wrap(ctrl.notionStatus));
+router.delete("/notion", protect, wrap(ctrl.notionDisconnect));
+
 // ── Protected ─────────────────────────────────────────────────
 router.post("/logout", protect, wrap(ctrl.logout));
 router.get("/me", protect, wrap(ctrl.getMe));

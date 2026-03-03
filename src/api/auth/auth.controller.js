@@ -284,3 +284,45 @@ export async function googleDocsDisconnectForUser(req, res) {
     return serverError(res, err, "googleDocsDisconnectForUser");
   }
 }
+
+// ── POST /auth/notion/connect ─────────────────────────────────
+export async function notionConnect(req, res) {
+  const { apiKey, parentPageId, workspaceName } = req.body;
+  if (!apiKey || !parentPageId) {
+    return fail(res, "VALIDATION_ERROR", "apiKey and parentPageId are required.", 400);
+  }
+  try {
+    const { saveNotionSettings } = await import("../../services/notion.service.js");
+    const status = await saveNotionSettings({
+      userId: req.user.userId,
+      apiKey,
+      parentPageId,
+      workspaceName,
+    });
+    return ok(res, status, "Notion connected successfully.");
+  } catch (err) {
+    return serverError(res, err, "notionConnect");
+  }
+}
+
+// ── GET /auth/notion/status ───────────────────────────────────
+export async function notionStatus(req, res) {
+  try {
+    const { getNotionStatus } = await import("../../services/notion.service.js");
+    const status = await getNotionStatus(req.user.userId);
+    return ok(res, status);
+  } catch (err) {
+    return serverError(res, err, "notionStatus");
+  }
+}
+
+// ── DELETE /auth/notion ───────────────────────────────────────
+export async function notionDisconnect(req, res) {
+  try {
+    const { disconnectNotion } = await import("../../services/notion.service.js");
+    await disconnectNotion(req.user.userId);
+    return ok(res, null, "Notion disconnected.");
+  } catch (err) {
+    return serverError(res, err, "notionDisconnect");
+  }
+}

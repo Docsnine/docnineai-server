@@ -533,7 +533,7 @@ export async function exportYaml(req, res) {
 
 export async function exportNotion(req, res) {
   const exportToNotion = await getExportToNotion();
-  
+
   if (!exportToNotion)
     return fail(
       res,
@@ -542,22 +542,40 @@ export async function exportNotion(req, res) {
       503,
     );
   try {
+    // Fetch this user's Notion credentials (throws NOTION_NOT_CONNECTED if absent)
+    const { getDecryptedNotionSettings } = await import("../../services/notion.service.js");
+    let notionCreds;
+    try {
+      notionCreds = await getDecryptedNotionSettings(req.user.userId);
+    } catch (credErr) {
+      if (credErr.message === "NOTION_NOT_CONNECTED") {
+        return fail(
+          res,
+          "NOTION_NOT_CONNECTED",
+          "Connect your Notion account first via Settings → Export connections.",
+          403,
+        );
+      }
+      throw credErr;
+    }
+
     const project = await projectService.getProjectById({
       projectId: req.params.id,
       userId: req.user.userId,
     });
     if (project.status !== "done")
       return fail(res, "PROJECT_NOT_READY", "Pipeline has not completed.", 409);
+
     const result = await exportToNotion({
       meta: project.meta || {},
       output: project.effectiveOutput,
       stats: project.stats || {},
       securityScore: project.security?.score ?? null,
+      apiKey: notionCreds.apiKey,
+      parentPageId: notionCreds.parentPageId,
     });
     return ok(res, result, "Documentation pushed to Notion.");
   } catch (err) {
-    if (err.message?.includes("NOTION_API_KEY"))
-      return fail(res, "NOTION_NOT_CONFIGURED", err.message, 503);
     return handleErr(res, err, "exportNotion");
   }
 }
