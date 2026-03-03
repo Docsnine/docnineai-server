@@ -31,6 +31,14 @@
 //   GET    /projects/:id/attachments/:attachmentId   (stream / download)
 //   PATCH  /projects/:id/attachments/:attachmentId   (update description)
 //   DELETE /projects/:id/attachments/:attachmentId
+//
+//   ── API Spec (OpenAPI / Postman importer) ────────────────────
+//   GET    /projects/:id/apispec
+//   POST   /projects/:id/apispec/import          (file | url | raw)
+//   POST   /projects/:id/apispec/sync            (URL source only)
+//   DELETE /projects/:id/apispec
+//   PATCH  /projects/:id/apispec/endpoint        (custom note)
+//   POST   /projects/:id/apispec/try             (Try It proxy)
 // =============================================================
 
 import { Router } from "express";
@@ -40,6 +48,7 @@ import * as ctrl from "./project.controller.js";
 import * as attachmentCtrl from "./attachment.controller.js";
 import * as shareCtrl from "./share.controller.js";
 import * as portalCtrl from "../portal/portal.controller.js";
+import apispecRoutes from "../apispec/apispec.routes.js";
 import { protect } from "../../middleware/auth.middleware.js";
 import { rules, validate } from "../../middleware/validate.middleware.js";
 import { apiLimiter } from "../../middleware/rateLimiter.middleware.js";
@@ -228,5 +237,15 @@ router.delete(
 router.get("/:id/portal", validateMongoId, wrap(portalCtrl.getOwnerPortal));
 router.put("/:id/portal", validateMongoId, wrap(portalCtrl.upsertPortal));
 router.post("/:id/portal/publish", validateMongoId, wrap(portalCtrl.togglePublish));
+
+// ── API Spec (OpenAPI / Postman importer) ─────────────────────
+// GET    /projects/:id/apispec          — get imported spec
+// POST   /projects/:id/apispec/import   — import (file | url | raw)
+// POST   /projects/:id/apispec/sync     — re-fetch URL source
+// DELETE /projects/:id/apispec          — remove spec
+// PATCH  /projects/:id/apispec/endpoint — update endpoint custom note
+// POST   /projects/:id/apispec/try      — Try-It proxy
+
+router.use("/:id/apispec", validateMongoId, apispecRoutes);
 
 export default router;
