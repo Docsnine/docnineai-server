@@ -39,6 +39,7 @@ import multer from "multer";
 import * as ctrl from "./project.controller.js";
 import * as attachmentCtrl from "./attachment.controller.js";
 import * as shareCtrl from "./share.controller.js";
+import * as portalCtrl from "../portal/portal.controller.js";
 import { protect } from "../../middleware/auth.middleware.js";
 import { rules, validate } from "../../middleware/validate.middleware.js";
 import { apiLimiter } from "../../middleware/rateLimiter.middleware.js";
@@ -218,5 +219,14 @@ router.delete(
   validateAttachmentId,
   wrap(attachmentCtrl.deleteAttachment),
 );
+
+// ── Portal (owner only) ───────────────────────────────────────
+// GET    /projects/:id/portal          — get portal settings
+// PUT    /projects/:id/portal          — upsert portal settings
+// POST   /projects/:id/portal/publish  — toggle isPublished
+
+router.get("/:id/portal", validateMongoId, wrap(portalCtrl.getOwnerPortal));
+router.put("/:id/portal", validateMongoId, wrap(portalCtrl.upsertPortal));
+router.post("/:id/portal/publish", validateMongoId, wrap(portalCtrl.togglePublish));
 
 export default router;

@@ -13,6 +13,7 @@ import { Router } from "express";
 import authRoutes from "./auth/auth.routes.js";
 import githubRoutes from "./github/github.routes.js";
 import projectRoutes from "./projects/project.routes.js";
+import portalRoutes from "./portal/portal.routes.js";
 import legacyRoutes from "./legacy.router.js";
 
 const router = Router();
@@ -20,6 +21,7 @@ const router = Router();
 router.use("/auth", authRoutes);
 router.use("/github", githubRoutes);
 router.use("/projects", projectRoutes);
+router.use("/portal", portalRoutes); // public — no auth
 
 // backward-compatible legacy API
 router.use("/api", legacyRoutes);
