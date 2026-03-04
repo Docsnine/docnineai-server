@@ -273,7 +273,7 @@ export async function sendPlanUpgradedEmail({
     subject: `You've upgraded to ${newPlanName} — Docnine`,
     text: `Hi ${name},\n\nYou've been upgraded to ${newPlanName}. New features are available now. Next renewal: ${renewDate}.\n\nManage billing: ${billingUrl}`,
     html: emailTemplate({
-      title: `Upgraded to ${newPlanName} ✨`,
+      title: `Upgraded to ${newPlanName}`,
       body: `<p>Hi <strong>${name}</strong>,</p><p>You've successfully upgraded to the <strong>${newPlanName}</strong> plan. All new features are available right now. Your next renewal date is <strong>${renewDate}</strong>.</p>`,
       ctaText: "Explore New Features",
       ctaUrl: `${FRONTEND_URL}/projects`,
