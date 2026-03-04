@@ -1,8 +1,19 @@
 import "dotenv/config";
 import app from "./app.js";
+import { connectDB } from "./config/db.js";
+import { startBillingCron } from "./services/cron.service.js";
 
 const PORT = process.env.PORT || 4000;
 
-app.listen(PORT, () => {
-  console.log(`DocNine running locally at http://localhost:${PORT}`);
+async function start() {
+  await connectDB();
+  startBillingCron();
+  app.listen(PORT, () => {
+    console.log(`DocNine running locally at http://localhost:${PORT}`);
+  });
+}
+
+start().catch((err) => {
+  console.error("Failed to start server:", err);
+  process.exit(1);
 });

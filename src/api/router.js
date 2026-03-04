@@ -14,7 +14,9 @@ import authRoutes from "./auth/auth.routes.js";
 import githubRoutes from "./github/github.routes.js";
 import projectRoutes from "./projects/project.routes.js";
 import portalRoutes from "./portal/portal.routes.js";
+import billingRoutes from "./billing/billing.routes.js";
 import legacyRoutes from "./legacy.router.js";
+import { handleFlutterwaveWebhook } from "./billing/billing.webhook.js";
 
 const router = Router();
 
@@ -22,6 +24,10 @@ router.use("/auth", authRoutes);
 router.use("/github", githubRoutes);
 router.use("/projects", projectRoutes);
 router.use("/portal", portalRoutes); // public — no auth
+router.use("/billing", billingRoutes);
+
+// Flutterwave webhook — raw body verified inside handler
+router.post("/webhook/flutterwave", handleFlutterwaveWebhook);
 
 // backward-compatible legacy API
 router.use("/api", legacyRoutes);
