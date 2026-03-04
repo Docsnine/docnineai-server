@@ -542,6 +542,7 @@ async function issueTokens(user) {
   const accessToken = signAccessToken({
     userId: user._id.toString(),
     email: user.email,
+    role: user.role ?? "user",
   });
   const refreshToken = signRefreshToken({ userId: user._id.toString() });
 

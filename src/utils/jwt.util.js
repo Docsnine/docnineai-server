@@ -50,7 +50,7 @@ function getSecrets() {
 export function signAccessToken(payload) {
   const { ACCESS_SECRET } = getSecrets();
   return jwt.sign(
-    { sub: payload.userId, email: payload.email },
+    { sub: payload.userId, email: payload.email, role: payload.role ?? "user" },
     ACCESS_SECRET,
     { expiresIn: ACCESS_TTL },
   );

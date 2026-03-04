@@ -99,6 +99,13 @@ const UserSchema = new Schema(
       type: String,
       trim: true,
     },
+
+    // ── Role ─────────────────────────────────────────────────
+    role: {
+      type: String,
+      enum: ["user", "super-admin"],
+      default: "user",
+    },
   },
   {
     timestamps: true, // adds createdAt, updatedAt automatically

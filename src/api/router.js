@@ -17,6 +17,7 @@ import portalRoutes from "./portal/portal.routes.js";
 import billingRoutes from "./billing/billing.routes.js";
 import legacyRoutes from "./legacy.router.js";
 import { handleFlutterwaveWebhook } from "./billing/billing.webhook.js";
+import adminRoutes from "./admin/admin.routes.js";
 
 const router = Router();
 
@@ -25,6 +26,7 @@ router.use("/github", githubRoutes);
 router.use("/projects", projectRoutes);
 router.use("/portal", portalRoutes); // public — no auth
 router.use("/billing", billingRoutes);
+router.use("/admin", adminRoutes);
 
 // Flutterwave webhook — raw body verified inside handler.
 // Path must stay under /api/webhook/* so the express.raw() middleware
