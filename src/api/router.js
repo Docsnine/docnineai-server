@@ -26,7 +26,9 @@ router.use("/projects", projectRoutes);
 router.use("/portal", portalRoutes); // public — no auth
 router.use("/billing", billingRoutes);
 
-// Flutterwave webhook — raw body verified inside handler
+// Flutterwave webhook — raw body verified inside handler.
+// Path must stay under /api/webhook/* so the express.raw() middleware
+// in app.js buffers the body before express.json() can consume it.
 router.post("/webhook/flutterwave", handleFlutterwaveWebhook);
 
 // backward-compatible legacy API
