@@ -52,6 +52,7 @@ import apispecRoutes from "../apispec/apispec.routes.js";
 import { protect } from "../../middleware/auth.middleware.js";
 import { rules, validate } from "../../middleware/validate.middleware.js";
 import { apiLimiter } from "../../middleware/rateLimiter.middleware.js";
+import { checkProjectLimit, checkPortalPublishLimit } from "../../middleware/plan-gate.middleware.js";
 import { wrap } from "../../utils/response.util.js";
 import { SECTIONS } from "../../models/DocumentVersion.js";
 
@@ -86,7 +87,7 @@ const validateVersionId = [
 router.get("/shared", wrap(shareCtrl.getSharedProjects));
 
 // ── Collection ────────────────────────────────────────────────
-router.post("/", rules.createProject, validate, wrap(ctrl.createProject));
+router.post("/", rules.createProject, validate, checkProjectLimit, wrap(ctrl.createProject));
 router.get("/", rules.listProjects, validate, wrap(ctrl.listProjects));
 
 // ── Item ──────────────────────────────────────────────────────
@@ -236,7 +237,7 @@ router.delete(
 
 router.get("/:id/portal", validateMongoId, wrap(portalCtrl.getOwnerPortal));
 router.put("/:id/portal", validateMongoId, wrap(portalCtrl.upsertPortal));
-router.post("/:id/portal/publish", validateMongoId, wrap(portalCtrl.togglePublish));
+router.post("/:id/portal/publish", validateMongoId, checkPortalPublishLimit, wrap(portalCtrl.togglePublish));
 
 // ── API Spec (OpenAPI / Postman importer) ─────────────────────
 // GET    /projects/:id/apispec          — get imported spec

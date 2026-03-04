@@ -16,6 +16,8 @@ import { Subscription } from "../models/Subscription.js";
 import { PlanUsage } from "../models/PlanUsage.js";
 import { getPlan, PLAN_LEVEL, PLANS } from "../config/plans.js";
 import { fail } from "../utils/response.util.js";
+import { Project } from "../models/Project.js";
+import { Portal } from "../models/Portal.js";
 
 // ── Internal: load subscription (cached per request) ─────────────
 
@@ -106,8 +108,11 @@ export async function checkProjectLimit(req, res, next) {
 
     if (maxProjects === null) return next(); // unlimited
 
-    const usage = await PlanUsage.findOne({ userId: req.user.userId });
-    const projectCount = usage?.projectCount ?? 0;
+    // Count real (non-archived) projects owned by this user — avoids stale cache issues
+    const projectCount = await Project.countDocuments({
+      userId: req.user.userId,
+      status: { $ne: "archived" },
+    });
 
     if (projectCount < maxProjects) return next();
 
@@ -117,6 +122,64 @@ export async function checkProjectLimit(req, res, next) {
       `You've reached the ${maxProjects}-project limit on the ${planConfig.name} plan.`,
       403,
       { requiredPlan: "starter", limit: maxProjects },
+    );
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * Check portal publish limit.
+ * Free plan = 0 portals (cannot publish).
+ * Starter = 1 published portal at a time.
+ * Pro/Team = unlimited.
+ *
+ * Unpublishing is always allowed regardless of plan.
+ */
+export async function checkPortalPublishLimit(req, res, next) {
+  try {
+    const sub = await loadSubscription(req);
+    const plan = effectivePlan(sub);
+    const planConfig = getPlan(plan);
+    const maxPortals = planConfig.limits.portals;
+
+    if (maxPortals === null) return next(); // unlimited
+
+    // If the portal is already published the user wants to unpublish → always allow
+    const currentPortal = await Portal.findOne({ projectId: req.params.id })
+      .select("isPublished")
+      .lean();
+    if (currentPortal?.isPublished) return next();
+
+    // User wants to publish — enforce limit
+    if (maxPortals === 0) {
+      return fail(
+        res,
+        "PLAN_GATE",
+        `Publishing portals requires the Starter plan or higher.`,
+        403,
+        { requiredPlan: "starter" },
+      );
+    }
+
+    // Count published portals across all projects owned by this user
+    const userProjectIds = await Project.find({ userId: req.user.userId })
+      .select("_id")
+      .lean();
+    const projectIds = userProjectIds.map((p) => p._id);
+    const publishedCount = await Portal.countDocuments({
+      projectId: { $in: projectIds },
+      isPublished: true,
+    });
+
+    if (publishedCount < maxPortals) return next();
+
+    return fail(
+      res,
+      "PLAN_GATE",
+      `You've reached the ${maxPortals}-portal limit on the ${planConfig.name} plan.`,
+      403,
+      { requiredPlan: "pro", limit: maxPortals },
     );
   } catch (err) {
     next(err);

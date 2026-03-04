@@ -7,6 +7,7 @@ import * as projectService from "./project.service.js";
 import { ok, fail, serverError } from "../../utils/response.util.js";
 import { jobs, streams } from "../../services/job-registry.service.js";
 import { SECTIONS } from "../../models/DocumentVersion.js";
+import { PlanUsage } from "../../models/PlanUsage.js";
 
 // ── Lazy export services ──────────────────────────────────────
 let _exportToPDF = null;
@@ -97,6 +98,8 @@ export async function createProject(req, res) {
       userId: req.user.userId,
       repoUrl: req.body.repoUrl,
     });
+    // Track usage for plan gate checks
+    await PlanUsage.increment(req.user.userId, { projectCount: 1 }).catch(() => {});
     return ok(
       res,
       { project, streamUrl: `/projects/${project._id}/stream` },
@@ -150,6 +153,8 @@ export async function deleteProject(req, res) {
       projectId: req.params.id,
       userId: req.user.userId,
     });
+    // Decrement usage counter
+    await PlanUsage.increment(req.user.userId, { projectCount: -1 }).catch(() => {});
     return ok(res, null, "Project deleted.");
   } catch (err) {
     return handleErr(res, err, "deleteProject");

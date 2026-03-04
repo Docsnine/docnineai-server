@@ -18,6 +18,7 @@ import {
   generateInvoicePdf,
 } from "../../services/billing.service.js";
 import { Subscription } from "../../models/Subscription.js";
+import { Project } from "../../models/Project.js";
 import { PaymentMethod } from "../../models/PaymentMethod.js";
 import { PlanUsage } from "../../models/PlanUsage.js";
 import { Invoice } from "../../models/Invoice.js";
@@ -85,7 +86,8 @@ export async function getSubscription(req, res) {
       usage: {
         aiChatsUsed: usage?.aiChatsUsed ?? 0,
         aiChatsResetAt: usage?.aiChatsResetAt ?? null,
-        projectCount: usage?.projectCount ?? 0,
+        // Count real (non-archived) projects for accuracy
+        projectCount: await Project.countDocuments({ userId: sub.userId, status: { $ne: "archived" } }),
         portalCount: usage?.portalCount ?? 0,
         activeShareCount: usage?.activeShareCount ?? 0,
       },
