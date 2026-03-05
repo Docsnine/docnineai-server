@@ -6,6 +6,7 @@ import cookieParser from "cookie-parser";
 import { connectDB } from "./config/db.js";
 import apiRouter from "./api/router.js";
 import { recoverOrphanedJobs } from "./api/projects/project.service.js";
+import { loadLegacyServices } from "./api/legacy.router.js";
 
 const app = express();
 
@@ -28,6 +29,8 @@ async function initOnce() {
   await connectDB();
   // Best-effort recovery — don't block the request if it fails
   await recoverOrphanedJobs();
+  // Load legacy services (webhook handler, orchestrator, etc.)
+  await loadLegacyServices();
   initialized = true;
 }
 

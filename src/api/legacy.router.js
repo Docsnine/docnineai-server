@@ -182,11 +182,9 @@ router.get("/export/pdf/:jobId", (req, res) => {
 // ── POST /api/export/notion/:jobId ───────────────────────────
 router.post("/export/notion/:jobId", async (req, res) => {
   if (!_exportToNotion) {
-    return res
-      .status(503)
-      .json({
-        error: "Notion export unavailable. Run: npm install @notionhq/client",
-      });
+    return res.status(503).json({
+      error: "Notion export unavailable. Run: npm install @notionhq/client",
+    });
   }
   const job = jobs.get(req.params.jobId);
   if (!job?.result?.success) {
