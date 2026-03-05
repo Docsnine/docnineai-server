@@ -24,8 +24,10 @@ export const streams = new Map();
  * @param {string} jobId
  */
 export function registerJob(jobId) {
+  console.log(`[job-registry] Registering job ${jobId}`);
   jobs.set(jobId, { status: "running", events: [], result: null });
   streams.set(jobId, new Set());
+  console.log(`[job-registry] Job ${jobId} registered · total jobs: ${jobs.size}`);
 }
 
 /**

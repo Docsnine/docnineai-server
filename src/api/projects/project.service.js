@@ -988,6 +988,10 @@ async function runSync({ project, jobId, forceFullRun, webhookChangedFiles }) {
   const incrementalSync = await getIncrementalSync();
   const onProgress = makeProgressHandler(project._id, jobId);
 
+  console.log(
+    `[sync:${jobId}] 🚀 runSync async execution starting immediately · job should be in memory now`,
+  );
+
   try {
     console.log(
       `[sync:${jobId}] Starting incremental sync for ${project.repoUrl} · forceFullRun=${forceFullRun} · webhookFiles=${webhookChangedFiles?.length || 0}`,

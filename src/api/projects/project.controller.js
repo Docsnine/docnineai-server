@@ -267,11 +267,30 @@ export async function streamProject(req, res) {
   res.flushHeaders();
 
   const jobId = project.jobId;
-  const job = jobs.get(jobId);
-
+  
   console.log(
-    `[stream] Project ${projectId} · jobId: ${jobId} · job exists: ${!!job} · status: ${project.status}`,
+    `[stream] Project ${projectId} · jobId: ${jobId} · status: ${project.status}`,
   );
+
+  // ── Wait for job to be registered (up to 5 seconds) ────────
+  // This handles serverless environments where webhook and stream
+  // might run on different instances, or there's a slight delay in
+  // job registration between instances.
+  let job = jobs.get(jobId);
+  if (!job && project.status === "running") {
+    console.log(
+      `[stream] Job not yet registered, waiting (timeout 5s)…`,
+    );
+    let waited = 0;
+    while (!job && waited < 5000) {
+      await new Promise((r) => setTimeout(r, 200));
+      waited += 200;
+      job = jobs.get(jobId);
+    }
+    if (job) {
+      console.log(`[stream] Job registered after ${waited}ms`);
+    }
+  }
 
   if (!job) {
     // Job not in memory. Two cases:
