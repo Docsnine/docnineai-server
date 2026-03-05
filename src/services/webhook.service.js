@@ -40,21 +40,6 @@ export function validateWebhookSignature(rawPayload, signature, secret) {
     return true;
   }
 
-  const computed = `sha256=${crypto
-    .createHmac("sha256", secret)
-    .update(rawPayload)
-    .digest("hex")}`;
-
-  // TEMPORARY DEBUG — remove after fixing
-  console.log("[webhook:debug] received :", signature);
-  console.log("[webhook:debug] computed :", computed);
-  console.log("[webhook:debug] secretLen:", secret.length);
-  console.log(
-    "[webhook:debug] secretHex:",
-    Buffer.from(secret).toString("hex").slice(0, 20),
-  );
-  // END TEMP DEBUG
-
   if (!signature || typeof signature !== "string") {
     console.warn("[webhook] ✗ Missing or non-string signature header");
     return false;
@@ -65,16 +50,11 @@ export function validateWebhookSignature(rawPayload, signature, secret) {
     return false;
   }
 
-  // Guard: if rawPayload is a parsed object, we can't verify — reject immediately
   if (
     rawPayload &&
     typeof rawPayload === "object" &&
     !Buffer.isBuffer(rawPayload)
   ) {
-    console.error(
-      "[webhook] ✗ rawPayload is a parsed object — express.json() consumed the raw body before webhook route. " +
-        "Ensure express.raw() is applied to /api/webhook BEFORE express.json().",
-    );
     return false;
   }
 
@@ -88,16 +68,14 @@ export function validateWebhookSignature(rawPayload, signature, secret) {
 
   // timingSafeEqual requires equal lengths — check first to avoid throwing
   if (sigBuf.length !== expectedBuf.length) {
-    console.warn(
-      `[webhook] ✗ Signature length mismatch: got ${sigBuf.length}, expected ${expectedBuf.length}`,
-    );
     return false;
   }
 
   const valid = crypto.timingSafeEqual(sigBuf, expectedBuf);
+
   if (!valid) {
     console.warn(
-      "[webhook] ✗ Signature mismatch — check WEBHOOK_SECRET matches GitHub secret",
+      "[webhook] Signature mismatch — check WEBHOOK_SECRET matches GitHub secret",
     );
   }
   return valid;
@@ -133,6 +111,7 @@ export function shouldReDocument(pushPayload) {
   // Build a deduplicated changed-file list from all commits in the push.
   // Priority: removed > modified > added (last write wins per path)
   const pathMap = new Map();
+  
   for (const commit of commits) {
     for (const p of commit.added || [])
       pathMap.set(p, { path: p, status: "added" });
