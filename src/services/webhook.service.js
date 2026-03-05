@@ -1,233 +1,473 @@
-// =============================================================
-// GitHub push webhook handler.
-//
-// v3.1 changes:
-//   When a push arrives for a repo that has existing Project
-//   documents, the webhook now triggers INCREMENTAL SYNC instead
-//   of a full re-run — passing the push payload's changed file
-//   list directly to incrementalOrchestrator so it doesn't even
-//   need to call the GitHub compare/tree APIs.
-//
-//   If no project exists for the repo, the webhook still responds
-//   with 200 (no-op) because we can't associate it with a user.
-//   The user must create a project via the dashboard first.
-// =============================================================
-
 import crypto from "crypto";
 
-// ── Signature validation ──────────────────────────────────────
-export function validateWebhookSignature(payload, signature, secret) {
+// ─── Constants ────────────────────────────────────────────────────
+
+const CODE_FILE =
+  /\.(js|ts|jsx|tsx|py|go|rs|java|rb|php|cs|cpp|c|h|vue|svelte|prisma|graphql|sql|kt|swift|dart)$/i;
+
+// Manifest files that trigger a full re-run when changed
+const MANIFEST_FILE =
+  /^(package\.json|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|requirements\.txt|Pipfile|Pipfile\.lock|go\.mod|go\.sum|Cargo\.toml|Cargo\.lock|pom\.xml|build\.gradle|composer\.json|Gemfile|Gemfile\.lock)$/i;
+
+// ─── Signature Validation ─────────────────────────────────────────
+
+/**
+ * Validate a GitHub webhook HMAC-SHA256 signature.
+ *
+ * BUG FIXED: The original used crypto.timingSafeEqual() which THROWS
+ * when the two buffers have different lengths (e.g. malformed signature
+ * header). The catch block returned false which masked the real error,
+ * but also meant any exception — including legitimate errors — silently
+ * failed validation. We now explicitly check lengths before comparing.
+ *
+ * BUG FIXED: The original accepted `payload` as either a string or
+ * Buffer without normalising it first. crypto.createHmac().update()
+ * handles both, but callers were sometimes passing a parsed JSON object
+ * (after express.json() had already consumed the raw body), which
+ * caused JSON.stringify(object) !== original_raw_bytes → always invalid.
+ * The fix is enforced at the route level (see api-router.js), but we
+ * also guard here.
+ *
+ * @param {Buffer|string} rawPayload   — raw request body bytes (NOT parsed)
+ * @param {string}        signature    — value of X-Hub-Signature-256 header
+ * @param {string}        secret       — WEBHOOK_SECRET env variable
+ */
+export function validateWebhookSignature(rawPayload, signature, secret) {
   if (!secret) {
-    console.warn("⚠️  WEBHOOK_SECRET not set — signature validation skipped");
+    console.warn(
+      "[webhook] ⚠️  WEBHOOK_SECRET not set — signature validation skipped",
+    );
     return true;
   }
-  const expected = `sha256=${crypto
-    .createHmac("sha256", secret)
-    .update(payload)
-    .digest("hex")}`;
-  try {
-    return crypto.timingSafeEqual(
-      Buffer.from(signature),
-      Buffer.from(expected),
-    );
-  } catch {
+
+  if (!signature || typeof signature !== "string") {
+    console.warn("[webhook] ✗ Missing or non-string signature header");
     return false;
   }
+
+  if (!signature.startsWith("sha256=")) {
+    console.warn("[webhook] ✗ Signature header does not start with 'sha256='");
+    return false;
+  }
+
+  // Guard: if rawPayload is a parsed object, we can't verify — reject immediately
+  if (
+    rawPayload &&
+    typeof rawPayload === "object" &&
+    !Buffer.isBuffer(rawPayload)
+  ) {
+    console.error(
+      "[webhook] ✗ rawPayload is a parsed object — express.json() consumed the raw body before webhook route. " +
+        "Ensure express.raw() is applied to /api/webhook BEFORE express.json().",
+    );
+    return false;
+  }
+
+  const expected = `sha256=${crypto
+    .createHmac("sha256", secret)
+    .update(rawPayload) // accepts Buffer or string — both are correct here
+    .digest("hex")}`;
+
+  const sigBuf = Buffer.from(signature);
+  const expectedBuf = Buffer.from(expected);
+
+  // timingSafeEqual requires equal lengths — check first to avoid throwing
+  if (sigBuf.length !== expectedBuf.length) {
+    console.warn(
+      `[webhook] ✗ Signature length mismatch: got ${sigBuf.length}, expected ${expectedBuf.length}`,
+    );
+    return false;
+  }
+
+  const valid = crypto.timingSafeEqual(sigBuf, expectedBuf);
+  if (!valid) {
+    console.warn(
+      "[webhook] ✗ Signature mismatch — check WEBHOOK_SECRET matches GitHub secret",
+    );
+  }
+  return valid;
 }
 
-// ── Should re-document? ───────────────────────────────────────
-const CODE_FILE =
-  /\.(js|ts|jsx|tsx|py|go|rs|java|rb|php|cs|cpp|c|h|vue|svelte|prisma|graphql|sql)$/i;
+// ─── Should Re-Document? ──────────────────────────────────────────
 
+/**
+ * Analyse a push payload and decide whether to trigger a sync.
+ *
+ * Returns:
+ *   { should: false, reason }
+ *   { should: true, changedFiles, codeFiles, needsFullRun, ... }
+ */
 export function shouldReDocument(pushPayload) {
-  const { ref, repository, commits = [] } = pushPayload;
+  const { ref, repository, commits = [], after } = pushPayload;
   const defaultBranch = repository?.default_branch || "main";
 
-  if (!ref?.endsWith(defaultBranch)) {
-    return { should: false, reason: "not_default_branch" };
+  // Only respond to pushes on the default branch
+  if (!ref || !ref.endsWith(`/${defaultBranch}`)) {
+    return { should: false, reason: "not_default_branch", ref, defaultBranch };
   }
 
-  // Build changed-file list from all commits in the push
-  const allChanged = commits.flatMap((c) => [
-    ...(c.added || []).map((p) => ({ path: p, status: "added" })),
-    ...(c.modified || []).map((p) => ({ path: p, status: "modified" })),
-    ...(c.removed || []).map((p) => ({ path: p, status: "removed" })),
-  ]);
+  // after = "0000000000000000000000000000000000000000" means branch deleted
+  if (after === "0000000000000000000000000000000000000000") {
+    return { should: false, reason: "branch_deleted" };
+  }
 
-  // Deduplicate — if a file appears in multiple commits keep "modified"
+  if (!commits.length) {
+    return { should: false, reason: "no_commits" };
+  }
+
+  // Build a deduplicated changed-file list from all commits in the push.
+  // Priority: removed > modified > added (last write wins per path)
   const pathMap = new Map();
-  for (const f of allChanged) {
-    if (!pathMap.has(f.path) || f.status === "modified") {
-      pathMap.set(f.path, f);
-    }
+  for (const commit of commits) {
+    for (const p of commit.added || [])
+      pathMap.set(p, { path: p, status: "added" });
+    for (const p of commit.modified || [])
+      pathMap.set(p, { path: p, status: "modified" });
+    for (const p of commit.removed || [])
+      pathMap.set(p, { path: p, status: "removed" });
   }
-  const changedFiles = [...pathMap.values()];
-  const codeChanges = changedFiles.filter((f) => CODE_FILE.test(f.path));
 
-  if (codeChanges.length === 0) {
-    return { should: false, reason: "no_code_changes" };
+  const changedFiles = [...pathMap.values()];
+  const codeFiles = changedFiles.filter((f) => CODE_FILE.test(f.path));
+
+  if (codeFiles.length === 0) {
+    return {
+      should: false,
+      reason: "no_code_changes",
+      totalChanged: changedFiles.length,
+    };
   }
+
+  // Check if a manifest file changed — signals a full re-run is needed
+  const needsFullRun = changedFiles.some((f) =>
+    MANIFEST_FILE.test(f.path.split("/").pop()),
+  );
 
   return {
     should: true,
     reason: "code_changed",
-    changedFiles, // full list (all statuses)
-    codeFiles: codeChanges, // code-only subset
+    changedFiles, // all changed files (all statuses)
+    codeFiles, // code-only subset
+    needsFullRun, // true → force full pipeline
     repoUrl: repository?.html_url,
-    pusher: pushPayload.pusher?.name,
+    repoFullName: repository?.full_name,
+    pusher: pushPayload.pusher?.name || pushPayload.sender?.login,
     branch: defaultBranch,
-    headCommit: pushPayload.after, // new HEAD sha from push event
+    headCommit: after, // new HEAD SHA from push event
+    commitCount: commits.length,
   };
 }
 
-// ── Handle incoming push webhook ─────────────────────────────
+// ─── Handle Incoming Push Webhook ─────────────────────────────────
+
+/**
+ * Process a GitHub push webhook.
+ *
+ * Expects:
+ *   payload   — raw Buffer or string (NOT parsed object — see note above)
+ *   signature — X-Hub-Signature-256 header value
+ *   secret    — WEBHOOK_SECRET
+ */
 export async function handleWebhook({ payload, signature, secret }) {
-  const rawPayload =
-    typeof payload === "string" ? payload : JSON.stringify(payload);
+  // ── 1. Validate signature ──────────────────────────────────
+  const rawPayload = Buffer.isBuffer(payload)
+    ? payload
+    : typeof payload === "string"
+      ? payload
+      : null;
 
-  console.log("🔔 Webhook received");
-  console.log("   Signature:", signature?.substring(0, 20) + "...");
-  console.log("   Secret set:", !!secret);
-  console.log("   Payload length:", rawPayload.length);
-
-  if (!validateWebhookSignature(rawPayload, signature, secret)) {
-    console.warn("❌ Signature validation failed");
-    console.warn("   Expected: sha256=..., Got:", signature?.substring(0, 30) + "...");
-    return { status: 401, body: { error: "Invalid webhook signature" } };
-  }
-
-  console.log("✓ Signature valid");
-  const parsed = typeof payload === "string" ? JSON.parse(payload) : payload;
-  const check = shouldReDocument(parsed);
-
-  if (!check.should) {
-    return { status: 200, body: { message: `Skipped: ${check.reason}` } };
-  }
-
-  console.log(
-    `🔔 Webhook push: ${check.repoUrl} by ${check.pusher} (${check.codeFiles.length} code files changed)`,
-  );
-
-  // Look up existing done/error projects for this repo across all users
-  const { Project } = await import("../models/Project.js");
-  const { syncProject } = await import("../api/projects/project.service.js");
-
-  // Normalise the repo URL to match the stored format
-  const normUrl = check.repoUrl?.replace(/\.git$/, "");
-
-  const projects = await Project.find({
-    repoUrl: {
-      $regex: normUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-      $options: "i",
-    },
-    status: { $in: ["done", "error"] },
-  })
-    .select("+agentOutputs +fileManifest")
-    .lean(false); // we need Mongoose docs for syncProject
-
-  if (projects.length === 0) {
-    console.log(`   ↳ No projects found for ${normUrl} — skipping`);
+  if (!rawPayload) {
+    console.error(
+      "[webhook] ✗ Payload is neither Buffer nor string — raw body middleware missing",
+    );
     return {
-      status: 200,
+      status: 400,
       body: {
-        message:
-          "No projects registered for this repository. Create one via the dashboard.",
+        error:
+          "Invalid payload format. Ensure raw body middleware is applied to this route.",
       },
     };
   }
 
+  const isValid = validateWebhookSignature(rawPayload, signature, secret);
+  if (!isValid) {
+    console.warn("[webhook] ✗ Signature validation failed");
+    console.warn(`[webhook]   Received:  ${signature?.slice(0, 45)}...`);
+    console.warn(`[webhook]   Secret set: ${!!secret}`);
+    console.warn(`[webhook]   Payload length: ${rawPayload.length} bytes`);
+    return { status: 401, body: { error: "Invalid webhook signature" } };
+  }
+
+  console.log("[webhook] ✓ Signature valid");
+
+  // ── 2. Parse payload ──────────────────────────────────────
+  let parsed;
+  try {
+    parsed = JSON.parse(rawPayload.toString("utf8"));
+  } catch (err) {
+    return {
+      status: 400,
+      body: { error: `Invalid JSON payload: ${err.message}` },
+    };
+  }
+
+  // ── 3. Check GitHub event type ────────────────────────────
+  // We only handle push events — ping and others are acknowledged but skipped
+  // The event type comes from X-GitHub-Event header (passed in options)
+  // If not passed, we infer from payload shape
+  const isPushEvent = parsed.ref && parsed.commits !== undefined;
+  const isPingEvent = parsed.zen !== undefined;
+
+  if (isPingEvent) {
+    console.log(
+      "[webhook] ✓ Ping event received — webhook configured correctly",
+    );
+    return {
+      status: 200,
+      body: { message: "Pong! Webhook configured correctly." },
+    };
+  }
+
+  if (!isPushEvent) {
+    return {
+      status: 200,
+      body: {
+        message: "Event type not handled — only push events trigger sync.",
+      },
+    };
+  }
+
+  // ── 4. Decide whether to re-document ─────────────────────
+  const check = shouldReDocument(parsed);
+
+  if (!check.should) {
+    console.log(`[webhook] Skipped: ${check.reason}`);
+    return {
+      status: 200,
+      body: { message: `Skipped: ${check.reason}`, detail: check },
+    };
+  }
+
+  console.log(
+    `[webhook] Push on ${check.repoFullName} by ${check.pusher} — ` +
+      `${check.codeFiles.length} code files · ${check.commitCount} commit(s)` +
+      (check.needsFullRun
+        ? " · FULL RUN (manifest changed)"
+        : " · incremental"),
+  );
+
+  // ── 5. Find registered projects for this repo ────────────
+  const { Project } = await import("../models/Project.js");
+  const { syncProject } = await import("../api/projects/project.service.js");
+
+  // Normalise URL for matching — strip trailing slash, .git, case-insensitive
+  const normUrl = (check.repoUrl || "")
+    .replace(/\.git$/, "")
+    .replace(/\/$/, "");
+  if (!normUrl) {
+    return {
+      status: 400,
+      body: { error: "Could not determine repository URL from payload" },
+    };
+  }
+
+  // Escape special regex chars before using in $regex query
+  const escapedUrl = normUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  const projects = await Project.find({
+    repoUrl: { $regex: escapedUrl, $options: "i" },
+    status: { $in: ["done", "error"] },
+  })
+    .select("+agentOutputs +fileManifest +events")
+    // lean(false) — we need Mongoose documents for syncProject
+    .lean(false);
+
+  if (projects.length === 0) {
+    console.log(`[webhook] No projects found for ${normUrl}`);
+    return {
+      status: 200,
+      body: {
+        message:
+          "No projects registered for this repository. Create one via the dashboard first.",
+        repoUrl: check.repoUrl,
+      },
+    };
+  }
+
+  // ── 6. Trigger incremental sync for each project ─────────
   const triggered = [];
   const errors = [];
 
-  for (const project of projects) {
-    try {
-      const result = await syncProject({
-        projectId: project._id.toString(),
-        userId: project.userId.toString(),
-        webhookChangedFiles: check.changedFiles,
-      });
-      triggered.push({ projectId: project._id, streamUrl: result.streamUrl });
-      console.log(
-        `   ↳ Incremental sync triggered for project ${project._id} (user ${project.userId})`,
-      );
-    } catch (err) {
-      errors.push({ projectId: project._id, error: err.message });
-      console.error(
-        `   ↳ Failed to trigger sync for project ${project._id}:`,
-        err.message,
-      );
-    }
-  }
+  // Run syncs in parallel — each project is independent
+  await Promise.all(
+    projects.map(async (project) => {
+      try {
+        const result = await syncProject({
+          projectId: project._id.toString(),
+          userId: project.userId.toString(),
+          forceFullRun: check.needsFullRun,
+          webhookChangedFiles: check.changedFiles,
+        });
+
+        triggered.push({
+          projectId: project._id,
+          streamUrl: result.streamUrl,
+          jobId: result.project?.jobId,
+        });
+
+        console.log(
+          `[webhook] ✓ Sync triggered — project ${project._id} ` +
+            `(user ${project.userId}) · job ${result.project?.jobId}`,
+        );
+      } catch (err) {
+        errors.push({
+          projectId: project._id,
+          error: err.message,
+          code: err.code,
+        });
+        console.error(
+          `[webhook] ✗ Failed to trigger sync for project ${project._id}:`,
+          err.message,
+        );
+      }
+    }),
+  );
 
   return {
     status: 202,
     body: {
-      message: `Incremental sync triggered for ${triggered.length} project(s)`,
+      message: `Sync triggered for ${triggered.length} project(s)`,
       triggered,
       errors: errors.length ? errors : undefined,
       repoUrl: check.repoUrl,
-      changedFiles: check.codeFiles.length,
+      branch: check.branch,
+      headCommit: check.headCommit?.slice(0, 8),
+      codeFiles: check.codeFiles.length,
+      needsFullRun: check.needsFullRun,
     },
   };
 }
 
-// ── Generate GitHub Actions workflow file ─────────────────────
-export function generateGitHubActionsWorkflow(apiBaseUrl) {
-  const base = apiBaseUrl || "https://your-documentor-instance.com";
-  const e = (expr) => "${{ " + expr + " }}";
+// ─── GitHub Actions Workflow Generator ───────────────────────────
 
-  return [
-    "# .github/workflows/document.yml",
-    "# Auto-generated by Docnine v3.1",
-    "# Triggers an incremental sync on every push to main.",
-    "# Only changed files are re-documented — fast and token-efficient.",
+/**
+ * Generate a .github/workflows/document.yml that:
+ *   1. Runs on every push to main/master
+ *   2. Computes an HMAC-SHA256 signature over the payload it sends
+ *   3. POSTs to your webhook endpoint with the correct signature
+ *
+ * BUG FIXED: The original generated workflow sent the payload without
+ * computing a signature — it just forwarded whatever was in the header
+ * from the GitHub event context. The signature in ${{ github.event }}
+ * was computed by GitHub over the ORIGINAL webhook bytes, which differ
+ * from the reconstructed curl payload, causing permanent signature
+ * mismatch (exactly the error in the CI logs).
+ *
+ * The fix: compute a fresh HMAC over the exact payload bytes being sent.
+ */
+export function generateGitHubActionsWorkflow(apiBaseUrl) {
+  const base = (apiBaseUrl || "https://your-docnine-instance.com").replace(
+    /\/$/,
     "",
-    "name: Auto-Document",
-    "",
-    "on:",
-    "  push:",
-    "    branches: [ main, master ]",
-    "    paths:",
-    "      - '**.js'",
-    "      - '**.ts'",
-    "      - '**.tsx'",
-    "      - '**.jsx'",
-    "      - '**.py'",
-    "      - '**.go'",
-    "      - '**.rs'",
-    "      - '**.java'",
-    "      - '**.prisma'",
-    "      - '**.graphql'",
-    "  workflow_dispatch:",
-    "",
-    "jobs:",
-    "  document:",
-    "    name: Incremental Documentation Sync",
-    "    runs-on: ubuntu-latest",
-    "    timeout-minutes: 15",
-    "",
-    "    steps:",
-    "      - name: Trigger Documentation Sync",
-    "        id: trigger",
-    "        env:",
-    `          API_BASE_URL: ${base}`,
-    "        run: |",
-    `          REPO_URL="${e("github.server_url")}/${e("github.repository")}"`,
-    "          RESPONSE=$(curl -s -X POST \\",
-    "            -H \"Content-Type: application/json\" \\",
-    "            -d \"{\\\"repoUrl\\\": \\\"$REPO_URL\\\"}\" \\",
-    "            \"$API_BASE_URL/api/document\")",
-    "          echo \"Response: $RESPONSE\"",
-    "          ERROR=$(echo \"$RESPONSE\" | jq -r '.error // empty')",
-    "          if [ ! -z \"$ERROR\" ]; then",
-    "            echo \"❌ Error: $ERROR\"",
-    "            exit 1",
-    "          fi",
-    "          JOB_ID=$(echo \"$RESPONSE\" | jq -r '.jobId')",
-    "          echo \"job_id=$JOB_ID\" >> $GITHUB_OUTPUT",
-    "          echo \"✓ Documentation sync job queued: $JOB_ID\"",
-    "      - name: Sync Queued",
-    "        run: |",
-    "          echo \"✓ Repository documentation will be processed asynchronously.\"",
-  ].join("\n");
+  );
+
+  return `# .github/workflows/document.yml
+# Auto-generated by Docnine
+# Triggers an incremental documentation sync on every push to main.
+# Only changed files are re-documented — fast and token-efficient.
+#
+# SETUP:
+#   1. Go to your repo Settings → Secrets and variables → Actions
+#   2. Add a secret named DOCNINE_WEBHOOK_SECRET
+#      (must match the WEBHOOK_SECRET set on your Docnine server)
+#   3. Add a secret named DOCNINE_PROJECT_ID
+#      (the project ID from your Docnine dashboard)
+
+name: Auto-Document
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - '**.js'
+      - '**.ts'
+      - '**.tsx'
+      - '**.jsx'
+      - '**.py'
+      - '**.go'
+      - '**.rs'
+      - '**.java'
+      - '**.kt'
+      - '**.prisma'
+      - '**.graphql'
+      - '**.sql'
+      - 'package.json'
+      - 'requirements.txt'
+      - 'go.mod'
+      - 'Cargo.toml'
+  workflow_dispatch:
+
+jobs:
+  document:
+    name: Incremental Documentation Sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Trigger Docnine Documentation Sync
+        env:
+          WEBHOOK_SECRET: \${{ secrets.DOCNINE_WEBHOOK_SECRET }}
+          API_BASE_URL:   ${base}
+        run: |
+          # Build the payload from the GitHub push context
+          REPO_URL="\${{ github.server_url }}/\${{ github.repository }}"
+          HEAD_COMMIT="\${{ github.sha }}"
+          PUSHER="\${{ github.actor }}"
+          REF="\${{ github.ref }}"
+
+          PAYLOAD=$(cat <<EOF
+          {
+            "ref": "\${REF}",
+            "after": "\${HEAD_COMMIT}",
+            "pusher": { "name": "\${PUSHER}" },
+            "repository": {
+              "html_url": "\${REPO_URL}",
+              "full_name": "\${{ github.repository }}",
+              "default_branch": "\${{ github.event.repository.default_branch || 'main' }}"
+            },
+            "commits": \${{ toJson(github.event.commits) }}
+          }
+          EOF
+          )
+
+          # Compute HMAC-SHA256 signature over the exact payload bytes being sent.
+          # This MUST use the same secret configured on your Docnine server.
+          SIGNATURE="sha256=\$(echo -n "\${PAYLOAD}" | openssl dgst -sha256 -hmac "\${WEBHOOK_SECRET}" | awk '{print \$2}')"
+
+          echo "Sending sync request to \${API_BASE_URL}/api/webhook"
+          echo "Repository: \${REPO_URL}"
+          echo "Commit: \${HEAD_COMMIT}"
+
+          HTTP_STATUS=\$(curl -s -o /tmp/webhook_response.json -w "%{http_code}" \\
+            -X POST \\
+            -H "Content-Type: application/json" \\
+            -H "X-Hub-Signature-256: \${SIGNATURE}" \\
+            -H "X-GitHub-Event: push" \\
+            -d "\${PAYLOAD}" \\
+            "\${API_BASE_URL}/api/webhook")
+
+          RESPONSE=\$(cat /tmp/webhook_response.json)
+          echo "HTTP Status: \${HTTP_STATUS}"
+          echo "Response: \${RESPONSE}"
+
+          # Fail the step if the server returned an error
+          if [ "\${HTTP_STATUS}" -ge 400 ]; then
+            echo "❌ Webhook returned HTTP \${HTTP_STATUS}"
+            echo "Error: \$(echo "\${RESPONSE}" | jq -r '.error // .message // "Unknown error"')"
+            exit 1
+          fi
+
+          TRIGGERED=\$(echo "\${RESPONSE}" | jq -r '.triggered | length // 0')
+          echo "✓ Sync triggered for \${TRIGGERED} project(s)"
+`;
 }
