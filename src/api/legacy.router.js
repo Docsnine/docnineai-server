@@ -91,6 +91,24 @@ router.post(
   },
 );
 
+// api-router.js — add this temporarily
+router.get("/webhook-test", (req, res) => {
+  const secret = process.env.WEBHOOK_SECRET || "";
+  const payload = Buffer.from('{"test":true}', "utf8");
+  const computed =
+    "sha256=" +
+    crypto.createHmac("sha256", secret).update(payload).digest("hex");
+
+  res.json({
+    secretLength: secret.length,
+    secretFirst4: secret.slice(0, 4),
+    secretLast4: secret.slice(-4),
+    testSignature: computed,
+    hasNewline: secret.includes("\n"),
+    hasSpace: secret.includes(" "),
+  });
+});
+
 // ── Service status tracker ────────────────────────────────────────
 
 export const serviceStatus = {
