@@ -32,53 +32,27 @@ const MANIFEST_FILE =
  * @param {string}        signature    — value of X-Hub-Signature-256 header
  * @param {string}        secret       — WEBHOOK_SECRET env variable
  */
+// webhook.service.js - in validateWebhookSignature
 export function validateWebhookSignature(rawPayload, signature, secret) {
-  if (!secret) {
-    console.warn(
-      "[webhook] ⚠️  WEBHOOK_SECRET not set — signature validation skipped",
-    );
-    return true;
-  }
+  if (!secret) return true;
 
-  if (!signature || typeof signature !== "string") {
-    console.warn("[webhook] ✗ Missing or non-string signature header");
-    return false;
-  }
-
-  if (!signature.startsWith("sha256=")) {
-    console.warn("[webhook] ✗ Signature header does not start with 'sha256='");
-    return false;
-  }
-
-  if (
-    rawPayload &&
-    typeof rawPayload === "object" &&
-    !Buffer.isBuffer(rawPayload)
-  ) {
-    return false;
-  }
-
-  const expected = `sha256=${crypto
+  const computed = `sha256=${crypto
     .createHmac("sha256", secret)
-    .update(rawPayload) // accepts Buffer or string — both are correct here
+    .update(rawPayload)
     .digest("hex")}`;
 
-  const sigBuf = Buffer.from(signature);
-  const expectedBuf = Buffer.from(expected);
+  // DEBUG - remove after fixing
+  console.log("[webhook:debug] received :", signature);
+  console.log("[webhook:debug] computed :", computed);
+  console.log("[webhook:debug] match    :", signature === computed);
+  console.log("[webhook:debug] secretLen:", secret.length);
+  console.log("[webhook:debug] secret[0:4]:", secret.slice(0, 4));
+  console.log("[webhook:debug] secret[-4:]:", secret.slice(-4));
 
-  // timingSafeEqual requires equal lengths — check first to avoid throwing
-  if (sigBuf.length !== expectedBuf.length) {
-    return false;
-  }
-
-  const valid = crypto.timingSafeEqual(sigBuf, expectedBuf);
-
-  if (!valid) {
-    console.warn(
-      "[webhook] Signature mismatch — check WEBHOOK_SECRET matches GitHub secret",
-    );
-  }
-  return valid;
+  const a = Buffer.from(signature);
+  const b = Buffer.from(computed);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
 }
 
 // ─── Should Re-Document? ──────────────────────────────────────────
