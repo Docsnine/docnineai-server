@@ -40,11 +40,19 @@ export function validateWebhookSignature(rawPayload, signature, secret) {
     return true;
   }
 
+  const computed = `sha256=${crypto
+    .createHmac("sha256", secret)
+    .update(rawPayload)
+    .digest("hex")}`;
+
   // TEMPORARY DEBUG — remove after fixing
   console.log("[webhook:debug] received :", signature);
   console.log("[webhook:debug] computed :", computed);
   console.log("[webhook:debug] secretLen:", secret.length);
-  console.log("[webhook:debug] secretHex:", Buffer.from(secret).toString('hex').slice(0, 20));
+  console.log(
+    "[webhook:debug] secretHex:",
+    Buffer.from(secret).toString("hex").slice(0, 20),
+  );
   // END TEMP DEBUG
 
   if (!signature || typeof signature !== "string") {
