@@ -82,7 +82,7 @@ async function getOrchestrate() {
 
 async function getIncrementalSync() {
   if (_incrementalSync) return _incrementalSync;
-  const m = await import("../../services/incremental-sync.service.js");
+  const m = await import("../../services/incremental-orchestrator.service.js");
   _incrementalSync = m.incrementalSync;
   return _incrementalSync;
 }
