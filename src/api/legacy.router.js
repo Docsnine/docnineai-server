@@ -216,8 +216,13 @@ router.post("/webhook", async (req, res) => {
     return res.status(503).json({ error: "Webhook service unavailable" });
   }
   try {
+    // Convert Buffer to string for signature validation
+    const payload = Buffer.isBuffer(req.body)
+      ? req.body.toString("utf8")
+      : req.body;
+
     const result = await _handleWebhook({
-      payload: req.body,
+      payload,
       signature: req.headers["x-hub-signature-256"] || "",
       secret: process.env.WEBHOOK_SECRET,
       jobs,
