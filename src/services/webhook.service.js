@@ -85,10 +85,18 @@ export async function handleWebhook({ payload, signature, secret }) {
   const rawPayload =
     typeof payload === "string" ? payload : JSON.stringify(payload);
 
+  console.log("🔔 Webhook received");
+  console.log("   Signature:", signature?.substring(0, 20) + "...");
+  console.log("   Secret set:", !!secret);
+  console.log("   Payload length:", rawPayload.length);
+
   if (!validateWebhookSignature(rawPayload, signature, secret)) {
+    console.warn("❌ Signature validation failed");
+    console.warn("   Expected: sha256=..., Got:", signature?.substring(0, 30) + "...");
     return { status: 401, body: { error: "Invalid webhook signature" } };
   }
 
+  console.log("✓ Signature valid");
   const parsed = typeof payload === "string" ? JSON.parse(payload) : payload;
   const check = shouldReDocument(parsed);
 
@@ -203,28 +211,23 @@ export function generateGitHubActionsWorkflow(apiBaseUrl) {
     "        id: trigger",
     "        env:",
     `          API_BASE_URL: ${base}`,
-    `          WEBHOOK_SECRET: ${e("secrets.DOCNINE_WEBHOOK_SECRET")}`,
     "        run: |",
     `          REPO_URL="${e("github.server_url")}/${e("github.repository")}"`,
-    "          PAYLOAD=$(cat <<'EOF'",
-    "          {\"repoUrl\": \"$REPO_URL\"}",
-    "          EOF",
-    "          )",
-    "          SIGNATURE=$(echo -n \"$PAYLOAD\" | openssl dgst -sha256 -hmac \"$WEBHOOK_SECRET\" -r | cut -d' ' -f1)",
-    "          SIGNATURE=\"sha256=$SIGNATURE\"",
     "          RESPONSE=$(curl -s -X POST \\",
     "            -H \"Content-Type: application/json\" \\",
-    "            -H \"X-Hub-Signature-256: $SIGNATURE\" \\",
-    "            -d \"$PAYLOAD\" \\",
-    "            \"$API_BASE_URL/api/webhook\")",
+    "            -d \"{\\\"repoUrl\\\": \\\"$REPO_URL\\\"}\" \\",
+    "            \"$API_BASE_URL/api/document\")",
     "          echo \"Response: $RESPONSE\"",
     "          ERROR=$(echo \"$RESPONSE\" | jq -r '.error // empty')",
     "          if [ ! -z \"$ERROR\" ]; then",
-    "            echo \"Error: $ERROR\"",
+    "            echo \"❌ Error: $ERROR\"",
     "            exit 1",
     "          fi",
+    "          JOB_ID=$(echo \"$RESPONSE\" | jq -r '.jobId')",
+    "          echo \"job_id=$JOB_ID\" >> $GITHUB_OUTPUT",
+    "          echo \"✓ Documentation sync job queued: $JOB_ID\"",
     "      - name: Sync Queued",
     "        run: |",
-    "          echo \"✓ Documentation sync queued. Projects will be processed asynchronously.\"",
+    "          echo \"✓ Repository documentation will be processed asynchronously.\"",
   ].join("\n");
 }

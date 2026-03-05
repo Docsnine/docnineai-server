@@ -217,19 +217,26 @@ router.post("/webhook", async (req, res) => {
   }
   try {
     // Convert Buffer to string for signature validation
-    const payload = Buffer.isBuffer(req.body)
-      ? req.body.toString("utf8")
-      : req.body;
+    // The signature must be computed over the exact same bytes
+    let payload = req.body;
+    if (Buffer.isBuffer(payload)) {
+      console.log("📦 Webhook: Converting Buffer to string");
+      payload = payload.toString("utf8");
+    }
+
+    const signature = req.headers["x-hub-signature-256"] || "";
+    console.log(`🔗 Webhook signature header: ${signature?.substring(0, 30)}...`);
 
     const result = await _handleWebhook({
       payload,
-      signature: req.headers["x-hub-signature-256"] || "",
+      signature,
       secret: process.env.WEBHOOK_SECRET,
       jobs,
       streams,
     });
     res.status(result.status).json(result.body);
   } catch (err) {
+    console.error("❌ Webhook error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
