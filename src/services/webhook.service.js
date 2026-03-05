@@ -41,14 +41,6 @@ export function validateWebhookSignature(rawPayload, signature, secret) {
     .update(rawPayload)
     .digest("hex")}`;
 
-  // DEBUG - remove after fixing
-  console.log("[webhook:debug] received :", signature);
-  console.log("[webhook:debug] computed :", computed);
-  console.log("[webhook:debug] match    :", signature === computed);
-  console.log("[webhook:debug] secretLen:", secret.length);
-  console.log("[webhook:debug] secret[0:4]:", secret.slice(0, 4));
-  console.log("[webhook:debug] secret[-4:]:", secret.slice(-4));
-
   const a = Buffer.from(signature);
   const b = Buffer.from(computed);
   if (a.length !== b.length) return false;
@@ -85,7 +77,7 @@ export function shouldReDocument(pushPayload) {
   // Build a deduplicated changed-file list from all commits in the push.
   // Priority: removed > modified > added (last write wins per path)
   const pathMap = new Map();
-  
+
   for (const commit of commits) {
     for (const p of commit.added || [])
       pathMap.set(p, { path: p, status: "added" });
