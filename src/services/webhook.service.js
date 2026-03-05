@@ -40,6 +40,13 @@ export function validateWebhookSignature(rawPayload, signature, secret) {
     return true;
   }
 
+  // TEMPORARY DEBUG — remove after fixing
+  console.log("[webhook:debug] received :", signature);
+  console.log("[webhook:debug] computed :", computed);
+  console.log("[webhook:debug] secretLen:", secret.length);
+  console.log("[webhook:debug] secretHex:", Buffer.from(secret).toString('hex').slice(0, 20));
+  // END TEMP DEBUG
+
   if (!signature || typeof signature !== "string") {
     console.warn("[webhook] ✗ Missing or non-string signature header");
     return false;
