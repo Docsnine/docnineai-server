@@ -654,7 +654,7 @@ function inferArchitecturePattern(classified, techStack) {
 export async function repoScannerAgent({ files, meta, emit }) {
   const notify = (msg, detail) => emit?.(msg, detail);
 
-  notify("Starting codebase scan…", "Agent 1 — Repo Scanner");
+  notify("Starting codebase scan…", "Repository Scanning");
 
   // ── 1. Pre-filter and prioritise files ────────────────────────
   const relevant = sortAndFilterFiles(files).slice(0, MAX_FILES);

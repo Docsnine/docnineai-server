@@ -225,7 +225,9 @@ router.post("/webhook", async (req, res) => {
     }
 
     const signature = req.headers["x-hub-signature-256"] || "";
-    console.log(`🔗 Webhook signature header: ${signature?.substring(0, 30)}...`);
+    console.log(
+      `🔗 Webhook signature header: ${signature?.substring(0, 30)}...`,
+    );
 
     const result = await _handleWebhook({
       payload,
@@ -234,9 +236,14 @@ router.post("/webhook", async (req, res) => {
       jobs,
       streams,
     });
+
+    console.log(
+      `[webhook] Returning ${result.status} with ${result.body.triggered?.length || 0} projects triggered`,
+    );
+
     res.status(result.status).json(result.body);
   } catch (err) {
-    console.error("❌ Webhook error:", err.message);
+    console.error("❌ Webhook error:", err.message, err.stack);
     res.status(500).json({ error: err.message });
   }
 });

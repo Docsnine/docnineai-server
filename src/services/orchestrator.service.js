@@ -342,7 +342,7 @@ export async function orchestrate(repoUrl, onProgress) {
     "scan",
     "running",
     "Classifying and analysing repository…",
-    "Agent 1 — Repo Scanner",
+    "Agent — Repo Scanner",
   );
   const scanStart = Date.now();
 

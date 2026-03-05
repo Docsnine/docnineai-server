@@ -269,6 +269,10 @@ export async function streamProject(req, res) {
   const jobId = project.jobId;
   const job = jobs.get(jobId);
 
+  console.log(
+    `[stream] Project ${projectId} · jobId: ${jobId} · job exists: ${!!job} · status: ${project.status}`,
+  );
+
   if (!job) {
     // Job not in memory. Two cases:
     //  1. Project is done/error — serve a synthetic result from DB (normal path
@@ -287,12 +291,18 @@ export async function streamProject(req, res) {
     };
 
     if (project.status === "done" || project.status === "error") {
+      console.log(
+        `[stream] Project ${projectId} in ${project.status} state, sending synthetic result`,
+      );
       res.write(
         `data: ${JSON.stringify({ step: "done", result: syntheticResult })}\n\n`,
       );
     } else {
       // Still running but no in-memory job — server restarted mid-pipeline.
       // Tell the client clearly and include a retry hint.
+      console.warn(
+        `[stream] Project ${projectId} still running but job not in memory (server restart?)`,
+      );
       res.write(
         `data: ${JSON.stringify({
           step: "error",
@@ -305,17 +315,20 @@ export async function streamProject(req, res) {
     return res.end();
   }
 
+  console.log(`[stream] Project ${projectId} · streaming ${job.events.length} buffered events`);
   for (const e of job.events) {
     res.write(`data: ${JSON.stringify(e)}\n\n`);
   }
 
   if (job.status !== "running") {
+    console.log(`[stream] Project ${projectId} · job ${job.status}, sending final result`);
     res.write(
       `data: ${JSON.stringify({ step: "done", result: job.result })}\n\n`,
     );
     return res.end();
   }
 
+  console.log(`[stream] Project ${projectId} · job still running, subscribing to updates`);
   const clients = streams.get(jobId) || new Set();
   clients.add(res);
   streams.set(jobId, clients);

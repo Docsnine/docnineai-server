@@ -989,23 +989,39 @@ async function runSync({ project, jobId, forceFullRun, webhookChangedFiles }) {
   const onProgress = makeProgressHandler(project._id, jobId);
 
   try {
+    console.log(
+      `[sync:${jobId}] Starting incremental sync for ${project.repoUrl} · forceFullRun=${forceFullRun} · webhookFiles=${webhookChangedFiles?.length || 0}`,
+    );
+
     const syncResult = await incrementalSync(project, onProgress, {
       forceFullRun,
       webhookChangedFiles,
     });
 
+    console.log(`[sync:${jobId}] Sync result: `, {
+      success: syncResult.success,
+      skipped: syncResult.skipped,
+      isFullRun: syncResult.isFullRun,
+      error: syncResult.error,
+    });
+
     // ── Outcome: sync failed ──────────────────────────────────
     if (!syncResult.success) {
+      const errorMsg = syncResult.error || "Sync failed";
+      console.error(`[sync:${jobId}] Sync failed: ${errorMsg}`);
       await Project.findByIdAndUpdate(project._id, {
         status: "error",
-        errorMessage: syncResult.error || "Sync failed",
+        errorMessage: errorMsg,
       });
-      failJob(jobId, new Error(syncResult.error || "Sync failed"));
+      failJob(jobId, new Error(errorMsg));
       return;
     }
 
     // ── Outcome: skipped (no changes / already up-to-date) ────
     if (syncResult.skipped) {
+      console.log(
+        `[sync:${jobId}] Sync skipped (${syncResult.reason}), marking done`,
+      );
       await Project.findByIdAndUpdate(project._id, {
         status: "done",
         lastDocumentedCommit: syncResult.currentCommit,
@@ -1021,14 +1037,19 @@ async function runSync({ project, jobId, forceFullRun, webhookChangedFiles }) {
 
     // ── Outcome: full run fallback ────────────────────────────
     if (syncResult.isFullRun) {
+      console.log(
+        `[sync:${jobId}] Fell back to full run — applying full pipeline result`,
+      );
       const result = syncResult._fullResult;
 
       if (!result?.success) {
+        const errorMsg = result?.error || "Full sync failed";
+        console.error(`[sync:${jobId}] Full sync failed: ${errorMsg}`);
         await Project.findByIdAndUpdate(project._id, {
           status: "error",
-          errorMessage: result?.error || "Full sync failed",
+          errorMessage: errorMsg,
         });
-        failJob(jobId, new Error(result?.error || "Full sync failed"));
+        failJob(jobId, new Error(errorMsg));
         return;
       }
 
@@ -1065,13 +1086,19 @@ async function runSync({ project, jobId, forceFullRun, webhookChangedFiles }) {
 
     if (!_update) {
       // Shouldn't happen — guard against malformed sync result
+      const errorMsg = "Sync returned no update payload";
+      console.error(`[sync:${jobId}] ${errorMsg}`);
       await Project.findByIdAndUpdate(project._id, {
         status: "error",
-        errorMessage: "Sync returned no update payload",
+        errorMessage: errorMsg,
       });
-      failJob(jobId, new Error("Sync returned no update payload"));
+      failJob(jobId, new Error(errorMsg));
       return;
     }
+
+    console.log(
+      `[sync:${jobId}] Incremental sync successful · ${syncResult.sectionsRegenerated?.length || 0} sections updated`,
+    );
 
     await Project.findByIdAndUpdate(project._id, {
       $set: {
