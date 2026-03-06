@@ -6,7 +6,6 @@ import cookieParser from "cookie-parser";
 import { connectDB } from "./config/db.js";
 import apiRouter from "./api/router.js";
 import { recoverOrphanedJobs } from "./api/projects/project.service.js";
-import { loadLegacyServices } from "./api/legacy.router.js";
 
 const app = express();
 
@@ -31,9 +30,6 @@ async function initOnce() {
 
   // Best-effort recovery — don't block the request if it fails
   await recoverOrphanedJobs();
-
-  // Load legacy services (webhook handler, orchestrator, etc.)
-  await loadLegacyServices();
 
   initialized = true;
 }
@@ -80,8 +76,10 @@ app.use(
 // ── Body parsing ───────────────────────────
 // Webhook routes need the raw Buffer for signature verification —
 // must be registered BEFORE express.json() consumes the body.
-// The /api/webhook prefix covers both GitHub and Flutterwave webhooks.
-app.use("/api/webhook", express.raw({ type: "application/json" }));
+// The /api/webhook prefix covers both GitHub and Flutterwave webhooks,
+// including per-project endpoints (/api/webhook/:projectId).
+app.use("/api/webhook", express.raw({ type: "*/*", limit: "10mb" }));
+
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 app.use(morgan("dev"));
@@ -114,7 +112,6 @@ app.get("/health/check", (_req, res) => {
 });
 
 // ── API ────────────────────────────────────
-
 // Root route returns welcome message
 app.get("/", (_req, res) => {
   res.json({

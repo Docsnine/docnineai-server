@@ -35,7 +35,7 @@
 //   recoverOrphanedJobs — startup recovery for interrupted pipelines
 // ===================================================================
 
-import { randomUUID } from "crypto";
+import { randomUUID, randomBytes } from "crypto";
 
 import { Project } from "../../models/Project.js";
 import { DocumentVersion, SECTIONS } from "../../models/DocumentVersion.js";
@@ -418,6 +418,8 @@ export async function createProject({ userId, repoUrl }) {
     );
 
   const jobId = randomUUID();
+  // Generate a unique 32-byte hex secret for this project's webhook
+  const webhookSecret = randomBytes(32).toString("hex");
 
   const project = await Project.create({
     userId,
@@ -427,6 +429,8 @@ export async function createProject({ userId, repoUrl }) {
     jobId,
     status: "running",
     search_language: "english",
+    webhookSecret,
+    webhookEnabled: true,
   });
 
   registerJob(jobId);

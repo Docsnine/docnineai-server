@@ -354,3 +354,50 @@ export async function notionDisconnect(req, res) {
     return serverError(res, err, "notionDisconnect");
   }
 }
+
+// ── GET /auth/webhook/status ──────────────────────────────────
+export async function webhookStatus(req, res) {
+  try {
+    const status = await authService.getWebhookStatus(req.user.userId);
+    return ok(res, status);
+  } catch (err) {
+    return serverError(res, err, "webhookStatus");
+  }
+}
+
+// ── POST /auth/webhook/init ───────────────────────────────────
+// Initialize or get webhook settings for a user
+export async function initWebhook(req, res) {
+  try {
+    const settings = await authService.getOrInitializeWebhook(req.user.userId);
+    return ok(res, settings, "Webhook initialized successfully.");
+  } catch (err) {
+    return serverError(res, err, "initWebhook");
+  }
+}
+
+// ── POST /auth/webhook/rotate ─────────────────────────────────
+// Rotate the webhook secret
+export async function rotateWebhookSecret(req, res) {
+  try {
+    const settings = await authService.rotateWebhookSecret(req.user.userId);
+    return ok(res, settings, "Webhook secret rotated successfully.");
+  } catch (err) {
+    return serverError(res, err, "rotateWebhookSecret");
+  }
+}
+
+// ── PATCH /auth/webhook ───────────────────────────────────────
+// Enable/disable webhooks
+export async function updateWebhookSettings(req, res) {
+  const { webhookEnabled } = req.body;
+  if (typeof webhookEnabled !== "boolean") {
+    return fail(res, "VALIDATION_ERROR", "webhookEnabled must be a boolean.", 400);
+  }
+  try {
+    const settings = await authService.updateWebhookSettings(req.user.userId, webhookEnabled);
+    return ok(res, settings, "Webhook settings updated.");
+  } catch (err) {
+    return serverError(res, err, "updateWebhookSettings");
+  }
+}

@@ -70,6 +70,12 @@ router.post("/notion/connect", protect, wrap(ctrl.notionConnect));
 router.get("/notion/status", protect, wrap(ctrl.notionStatus));
 router.delete("/notion", protect, wrap(ctrl.notionDisconnect));
 
+// ── Webhook Integration (settings-level, global) ──────────────
+router.get("/webhook/status", protect, wrap(ctrl.webhookStatus));
+router.post("/webhook/init", protect, wrap(ctrl.initWebhook));
+router.post("/webhook/rotate", protect, wrap(ctrl.rotateWebhookSecret));
+router.patch("/webhook", protect, wrap(ctrl.updateWebhookSettings));
+
 // ── Protected ─────────────────────────────────────────────────
 router.post("/logout", protect, wrap(ctrl.logout));
 router.get("/me", protect, wrap(ctrl.getMe));

@@ -431,3 +431,215 @@ jobs:
           echo "✓ Sync triggered for \${TRIGGERED} project(s)"
 `;
 }
+
+// ─── Per-Project Webhook Handler ──────────────────────────────────
+
+/**
+ * Process a webhook for a specific project.
+ *
+ * This is the per-project endpoint: POST /api/webhook/:projectId
+ * Validates signature against the project's own webhookSecret.
+ *
+ * Expects:
+ *   projectId — URL param
+ *   payload   — raw Buffer
+ *   signature — X-Hub-Signature-256 header
+ *   secret    — loaded from Project.webhookSecret
+ */
+export async function handleProjectWebhook({ projectId, payload, signature }) {
+  const { Project } = await import("../models/Project.js");
+  const { syncProject } = await import("../api/projects/project.service.js");
+  const { updateWebhookStatus } =
+    await import("../api/projects/webhook.service.js");
+
+  // ── 1. Load the project ────────────────────────────────────
+  const project = await Project.findById(projectId).select(
+    "+webhookSecret +agentOutputs +fileManifest +events",
+  );
+
+  if (!project) {
+    console.warn(`[webhook:${projectId}] ✗ Project not found`);
+    return {
+      status: 404,
+      body: { error: "Project not found" },
+    };
+  }
+
+  // ── 2. Check if webhooks are enabled ───────────────────────
+  if (!project.webhookEnabled) {
+    console.log(`[webhook:${projectId}] Skipped: webhooks disabled`);
+    await updateWebhookStatus({ projectId, status: "skipped" });
+    return {
+      status: 200,
+      body: { message: "Webhooks disabled for this project" },
+    };
+  }
+
+  // ── 3. Validate signature ──────────────────────────────────
+  const rawPayload = Buffer.isBuffer(payload)
+    ? payload
+    : typeof payload === "string"
+      ? Buffer.from(payload)
+      : null;
+
+  if (!rawPayload) {
+    console.error(
+      `[webhook:${projectId}] ✗ Payload is neither Buffer nor string`,
+    );
+    await updateWebhookStatus({ projectId, status: "failed" });
+    return {
+      status: 400,
+      body: { error: "Invalid payload format" },
+    };
+  }
+
+  const isValid = validateWebhookSignature(
+    rawPayload,
+    signature,
+    project.webhookSecret,
+  );
+
+  if (!isValid) {
+    console.warn(`[webhook:${projectId}] ✗ Signature validation failed`);
+    console.warn(
+      `[webhook:${projectId}]   Expected secret length: ${project.webhookSecret.length}`,
+    );
+    console.warn(
+      `[webhook:${projectId}]   Payload length: ${rawPayload.length} bytes`,
+    );
+    await updateWebhookStatus({ projectId, status: "failed" });
+    return { status: 401, body: { error: "Invalid webhook signature" } };
+  }
+
+  console.log(`[webhook:${projectId}] ✓ Signature valid`);
+
+  // ── 4. Parse payload ──────────────────────────────────────
+  let parsed;
+  try {
+    parsed = JSON.parse(rawPayload.toString("utf8"));
+  } catch (err) {
+    console.error(`[webhook:${projectId}] ✗ JSON parse failed: ${err.message}`);
+    await updateWebhookStatus({ projectId, status: "failed" });
+    return {
+      status: 400,
+      body: { error: `Invalid JSON payload: ${err.message}` },
+    };
+  }
+
+  // ── 5. Check GitHub event type ────────────────────────────
+  const isPushEvent = parsed.ref && parsed.commits !== undefined;
+  const isPingEvent = parsed.zen !== undefined;
+
+  if (isPingEvent) {
+    console.log(`[webhook:${projectId}] ✓ Ping event`);
+    await updateWebhookStatus({ projectId, status: "success" });
+    return {
+      status: 200,
+      body: { message: "Pong! Webhook configured correctly." },
+    };
+  }
+
+  if (!isPushEvent) {
+    console.log(`[webhook:${projectId}] Skipped: not a push event`);
+    await updateWebhookStatus({ projectId, status: "skipped" });
+    return {
+      status: 200,
+      body: {
+        message: "Event type not handled — only push events trigger sync.",
+      },
+    };
+  }
+
+  // ── 6. Decide whether to re-document ─────────────────────
+  const check = shouldReDocument(parsed);
+
+  if (!check.should) {
+    console.log(`[webhook:${projectId}] Skipped: ${check.reason}`);
+    await updateWebhookStatus({ projectId, status: "skipped" });
+    return {
+      status: 200,
+      body: { message: `Skipped: ${check.reason}`, detail: check },
+    };
+  }
+
+  console.log(
+    `[webhook:${projectId}] Push by ${check.pusher} — ` +
+      `${check.codeFiles.length} code files · ${check.commitCount} commit(s)` +
+      (check.needsFullRun
+        ? " · FULL RUN (manifest changed)"
+        : " · incremental"),
+  );
+
+  // ── 7. Check project is ready for sync ──────────────────────
+  if (project.status === "running" || project.status === "queued") {
+    console.log(`[webhook:${projectId}] Skipped: pipeline already running`);
+    await updateWebhookStatus({ projectId, status: "skipped" });
+    return {
+      status: 202,
+      body: { message: "Pipeline already running" },
+    };
+  }
+
+  if (project.status === "archived") {
+    console.log(`[webhook:${projectId}] Skipped: project archived`);
+    await updateWebhookStatus({ projectId, status: "skipped" });
+    return {
+      status: 202,
+      body: { message: "Project is archived" },
+    };
+  }
+
+  if (project.status !== "done" && project.status !== "error") {
+    console.log(
+      `[webhook:${projectId}] Skipped: project not in done/error state`,
+    );
+    await updateWebhookStatus({ projectId, status: "skipped" });
+    return {
+      status: 202,
+      body: {
+        message: "Project must be in done or error state to sync",
+        status: project.status,
+      },
+    };
+  }
+
+  // ── 8. Trigger sync ────────────────────────────────────────
+  try {
+    const result = await syncProject({
+      projectId: projectId,
+      userId: project.userId.toString(),
+      forceFullRun: check.needsFullRun,
+      webhookChangedFiles: check.changedFiles,
+    });
+
+    console.log(
+      `[webhook:${projectId}] ✓ Sync triggered · job ${result.project?.jobId}`,
+    );
+    await updateWebhookStatus({ projectId, status: "success" });
+
+    return {
+      status: 202,
+      body: {
+        message: "Sync triggered",
+        projectId: projectId,
+        jobId: result.project?.jobId,
+        streamUrl: result.streamUrl,
+        codeFiles: check.codeFiles.length,
+        needsFullRun: check.needsFullRun,
+      },
+    };
+  } catch (err) {
+    console.error(
+      `[webhook:${projectId}] ✗ Failed to trigger sync: ${err.message}`,
+    );
+    await updateWebhookStatus({ projectId, status: "failed" });
+
+    return {
+      status: 500,
+      body: {
+        error: `Failed to trigger sync: ${err.message}`,
+        code: err.code,
+      },
+    };
+  }
+}

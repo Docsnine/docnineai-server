@@ -100,6 +100,22 @@ const UserSchema = new Schema(
       trim: true,
     },
 
+    // ── Global Webhook Integration (settings-level) ──────────
+    webhookSecret: {
+      type: String,
+      select: false, // Never returned in queries by default
+    },
+    webhookEnabled: {
+      type: Boolean,
+      default: true,
+    },
+    lastWebhookAt: Date,
+    lastWebhookStatus: {
+      type: String,
+      enum: ["success", "failed", "skipped"],
+      default: null,
+    },
+
     // ── Role ─────────────────────────────────────────────────
     role: {
       type: String,
@@ -150,6 +166,7 @@ UserSchema.set("toJSON", {
     delete ret.emailVerificationExpires;
     delete ret.passwordResetToken;
     delete ret.passwordResetExpires;
+    delete ret.webhookSecret;
     return ret;
   },
 });

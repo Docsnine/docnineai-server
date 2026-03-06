@@ -32,6 +32,11 @@
 //   PATCH  /projects/:id/attachments/:attachmentId   (update description)
 //   DELETE /projects/:id/attachments/:attachmentId
 //
+//   ── Webhook Settings (per-project webhooks) ─────────────────
+//   GET    /projects/:id/webhook              get settings + YAML
+//   POST   /projects/:id/webhook/rotate       rotate secret
+//   PATCH  /projects/:id/webhook              enable/disable
+//
 //   ── API Spec (OpenAPI / Postman importer) ────────────────────
 //   GET    /projects/:id/apispec
 //   POST   /projects/:id/apispec/import          (file | url | raw)
@@ -48,6 +53,7 @@ import * as ctrl from "./project.controller.js";
 import * as attachmentCtrl from "./attachment.controller.js";
 import * as shareCtrl from "./share.controller.js";
 import * as portalCtrl from "../portal/portal.controller.js";
+import * as webhookCtrl from "./webhook.controller.js";
 import apispecRoutes from "../apispec/apispec.routes.js";
 import { protect } from "../../middleware/auth.middleware.js";
 import { rules, validate } from "../../middleware/validate.middleware.js";
@@ -238,6 +244,15 @@ router.delete(
 router.get("/:id/portal", validateMongoId, wrap(portalCtrl.getOwnerPortal));
 router.put("/:id/portal", validateMongoId, wrap(portalCtrl.upsertPortal));
 router.post("/:id/portal/publish", validateMongoId, checkPortalPublishLimit, wrap(portalCtrl.togglePublish));
+
+// ── Webhook Settings (owner only) ─────────────────────────────
+// GET    /projects/:id/webhook        — get webhook settings + YAML
+// POST   /projects/:id/webhook/rotate — regenerate secret + new YAML
+// PATCH  /projects/:id/webhook        — enable/disable webhooks
+
+router.get("/:id/webhook", validateMongoId, wrap(webhookCtrl.getWebhookSettings));
+router.post("/:id/webhook/rotate", validateMongoId, wrap(webhookCtrl.rotateWebhookSecret));
+router.patch("/:id/webhook", validateMongoId, wrap(webhookCtrl.updateWebhookSettings));
 
 // ── API Spec (OpenAPI / Postman importer) ─────────────────────
 // GET    /projects/:id/apispec          — get imported spec

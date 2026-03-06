@@ -4,6 +4,7 @@
 // ===================================================================
 
 import { User } from "../../models/User.js";
+import { randomBytes } from "crypto";
 import {
   signAccessToken,
   signRefreshToken,
@@ -41,6 +42,7 @@ export async function signup({ name, email, password }) {
     password, // pre-save hook bcrypt-hashes this
     emailVerificationToken: hashedToken,
     emailVerificationExpires: expiresAt,
+    webhookSecret: randomBytes(32).toString("hex"), // Generate webhook secret
   });
 
   // Send verification email — fire-and-forget (don't fail signup if SMTP is down)
@@ -406,6 +408,7 @@ export async function githubSocialLogin(code) {
       githubId: String(ghUser.id),
       githubUsername: ghUser.login,
       isEmailVerified: true,
+      webhookSecret: randomBytes(32).toString("hex"), // Generate webhook secret
     });
   } else {
     let changed = false;
@@ -485,6 +488,7 @@ export async function googleSocialLogin(code) {
       googleId: profile.id,
       googleUsername: profile.name,
       isEmailVerified: true,
+      webhookSecret: randomBytes(32).toString("hex"), // Generate webhook secret
     });
   } else {
     let changed = false;
@@ -561,4 +565,88 @@ async function issueTokens(user) {
   await user.save();
 
   return { accessToken, refreshToken };
+}
+
+// ── Webhook Integration ───────────────────────────────────────
+
+/**
+ * Get webhook status for a user (without exposing the secret).
+ */
+export async function getWebhookStatus(userId) {
+  const user = await User.findById(userId).select("+webhookSecret");
+  if (!user) throw new Error("User not found");
+
+  return {
+    webhookEnabled: user.webhookEnabled,
+    hasSecret: !!user.webhookSecret,
+    lastWebhookAt: user.lastWebhookAt || null,
+    lastWebhookStatus: user.lastWebhookStatus || null,
+  };
+}
+
+/**
+ * Get or initialize webhook settings for a user (returns secret).
+ * If no secret exists, generate one.
+ */
+export async function getOrInitializeWebhook(userId) {
+  const user = await User.findById(userId).select("+webhookSecret");
+  if (!user) throw new Error("User not found");
+
+  // Generate secret if missing
+  if (!user.webhookSecret) {
+    user.webhookSecret = randomBytes(32).toString("hex");
+    await user.save();
+  }
+
+  const backendBase = (process.env.API_BASE_URL || "https://your-docnine-instance.com").replace(/\/$/, "");
+  const webhookUrl = `${backendBase}/api/webhook`;
+
+  return {
+    webhookUrl,
+    secret: user.webhookSecret,
+    webhookEnabled: user.webhookEnabled,
+    lastWebhookAt: user.lastWebhookAt || null,
+    lastWebhookStatus: user.lastWebhookStatus || null,
+  };
+}
+
+/**
+ * Rotate the global webhook secret.
+ * Returns new secret and webhook URL.
+ */
+export async function rotateWebhookSecret(userId) {
+  const user = await User.findById(userId).select("+webhookSecret");
+  if (!user) throw new Error("User not found");
+
+  user.webhookSecret = randomBytes(32).toString("hex");
+  await user.save();
+
+  const backendBase = (process.env.API_BASE_URL || "https://your-docnine-instance.com").replace(/\/$/, "");
+  const webhookUrl = `${backendBase}/api/webhook`;
+
+  return {
+    webhookUrl,
+    secret: user.webhookSecret,
+    webhookEnabled: user.webhookEnabled,
+  };
+}
+
+/**
+ * Update webhook enable/disable status.
+ */
+export async function updateWebhookSettings(userId, webhookEnabled) {
+  const user = await User.findById(userId).select("+webhookSecret");
+  if (!user) throw new Error("User not found");
+
+  user.webhookEnabled = webhookEnabled;
+  await user.save();
+
+  const backendBase = (process.env.API_BASE_URL || "https://your-docnine-instance.com").replace(/\/$/, "");
+  const webhookUrl = `${backendBase}/api/webhook`;
+
+  return {
+    webhookUrl,
+    webhookEnabled: user.webhookEnabled,
+    hasSecret: !!user.webhookSecret,
+  };
 }
