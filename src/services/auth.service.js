@@ -308,7 +308,9 @@ export async function changePassword(userId, { currentPassword, newPassword }) {
     throw err;
   }
   if (!user.password) {
-    const err = new Error("Password change is not available for OAuth accounts.");
+    const err = new Error(
+      "Password change is not available for OAuth accounts.",
+    );
     err.code = "OAUTH_ACCOUNT";
     err.status = 400;
     throw err;
@@ -351,12 +353,18 @@ export async function githubSocialLogin(code) {
   const { default: axios } = await import("axios");
   const tokenRes = await axios.post(
     "https://github.com/login/oauth/access_token",
-    { client_id: GITHUB_LOGIN_CLIENT_ID, client_secret: GITHUB_LOGIN_CLIENT_SECRET, code },
+    {
+      client_id: GITHUB_LOGIN_CLIENT_ID,
+      client_secret: GITHUB_LOGIN_CLIENT_SECRET,
+      code,
+    },
     { headers: { Accept: "application/json" } },
   );
   const githubAccessToken = tokenRes.data.access_token;
   if (!githubAccessToken) {
-    const err = new Error("GitHub did not return an access token. The code may have expired.");
+    const err = new Error(
+      "GitHub did not return an access token. The code may have expired.",
+    );
     err.code = "GITHUB_CODE_INVALID";
     err.status = 400;
     throw err;
@@ -371,17 +379,23 @@ export async function githubSocialLogin(code) {
   ]);
 
   const ghUser = userRes.data;
-  const primaryEmail = emailsRes.data.find((e) => e.primary && e.verified)?.email;
+  const primaryEmail = emailsRes.data.find(
+    (e) => e.primary && e.verified,
+  )?.email;
 
   if (!primaryEmail) {
-    const err = new Error("No verified primary email found on your GitHub account.");
+    const err = new Error(
+      "No verified primary email found on your GitHub account.",
+    );
     err.code = "GITHUB_NO_EMAIL";
     err.status = 400;
     throw err;
   }
 
   // 3. Find-or-create user
-  let user = await User.findOne({ $or: [{ githubId: String(ghUser.id) }, { email: primaryEmail }] });
+  let user = await User.findOne({
+    $or: [{ githubId: String(ghUser.id) }, { email: primaryEmail }],
+  });
 
   if (!user) {
     user = await User.create({
@@ -427,7 +441,11 @@ export async function googleSocialLogin(code) {
     GOOGLE_LOGIN_REDIRECT_URI,
   } = process.env;
 
-  if (!GOOGLE_LOGIN_CLIENT_ID || !GOOGLE_LOGIN_CLIENT_SECRET || !GOOGLE_LOGIN_REDIRECT_URI) {
+  if (
+    !GOOGLE_LOGIN_CLIENT_ID ||
+    !GOOGLE_LOGIN_CLIENT_SECRET ||
+    !GOOGLE_LOGIN_REDIRECT_URI
+  ) {
     const err = new Error(
       "Google Login requires GOOGLE_LOGIN_CLIENT_ID, GOOGLE_LOGIN_CLIENT_SECRET, " +
         "and GOOGLE_LOGIN_REDIRECT_URI.",
@@ -508,10 +526,7 @@ export function getGithubLoginUrl() {
 }
 
 export function getGoogleLoginUrl() {
-  const {
-    GOOGLE_LOGIN_CLIENT_ID,
-    GOOGLE_LOGIN_REDIRECT_URI,
-  } = process.env;
+  const { GOOGLE_LOGIN_CLIENT_ID, GOOGLE_LOGIN_REDIRECT_URI } = process.env;
   if (!GOOGLE_LOGIN_CLIENT_ID || !GOOGLE_LOGIN_REDIRECT_URI) {
     const err = new Error("Google Login env vars not configured.");
     err.code = "GOOGLE_LOGIN_NOT_CONFIGURED";

@@ -171,7 +171,14 @@ export async function exportToPDF(res, { meta, output, stats, securityScore }) {
 }
 
 // ── Notion Export ─────────────────────────────────────────────
-export async function exportToNotion({ output, meta, stats, securityScore, apiKey, parentPageId }) {
+export async function exportToNotion({
+  output,
+  meta,
+  stats,
+  securityScore,
+  apiKey,
+  parentPageId,
+}) {
   // Dynamic import — throws a clear error if @notionhq/client is not installed
   let NotionClient;
   try {
@@ -183,9 +190,7 @@ export async function exportToNotion({ output, meta, stats, securityScore, apiKe
   }
 
   if (!apiKey || !parentPageId) {
-    throw new Error(
-      "NOTION_NOT_CONNECTED",
-    );
+    throw new Error("NOTION_NOT_CONNECTED");
   }
 
   const notion = new NotionClient({ auth: apiKey });
@@ -243,6 +248,7 @@ function notionHeading(text, level = 1) {
     [type]: { rich_text: [{ text: { content: text } }] },
   };
 }
+
 function notionParagraph(text) {
   return {
     object: "block",
@@ -252,9 +258,11 @@ function notionParagraph(text) {
     },
   };
 }
+
 function notionDivider() {
   return { object: "block", type: "divider", divider: {} };
 }
+
 function notionCode(text) {
   return {
     object: "block",

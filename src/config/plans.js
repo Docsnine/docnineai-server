@@ -38,7 +38,7 @@
  * @property {boolean} githubSync
  */
 
-export const PLAN_IDS = ['free', 'starter', 'pro', 'team'];
+export const PLAN_IDS = ["free", "starter", "pro", "team"];
 
 // Hierarchy level — higher = more powerful
 export const PLAN_LEVEL = { free: 0, starter: 1, pro: 2, team: 3 };
@@ -46,12 +46,12 @@ export const PLAN_LEVEL = { free: 0, starter: 1, pro: 2, team: 3 };
 export const PLANS = {
   // ── Free ──────────────────────────────────────────────────────
   free: {
-    id: 'free',
-    name: 'Free',
-    tagline: 'Solo devs exploring the platform',
+    id: "free",
+    name: "Free",
+    tagline: "Solo devs exploring the platform",
     prices: {
-      monthly: 0,    // cents
-      annual: 0,     // cents (per month, billed annually)
+      monthly: 0, // cents
+      annual: 0, // cents (per month, billed annually)
       annualTotal: 0,
     },
     limits: {
@@ -81,16 +81,16 @@ export const PLANS = {
 
   // ── Starter ───────────────────────────────────────────────────
   starter: {
-    id: 'starter',
-    name: 'Starter',
-    tagline: 'Freelancers & solo developers',
+    id: "starter",
+    name: "Starter",
+    tagline: "Freelancers & solo developers",
     prices: {
-      monthly: 1500,     // $15.00
-      annual: 1200,      // $12.00/mo (billed $144/yr)
+      monthly: 1500, // $15.00
+      annual: 1200, // $12.00/mo (billed $144/yr)
       annualTotal: 14400,
     },
     limits: {
-      projects: null,       // unlimited
+      projects: null, // unlimited
       seats: 1,
       extraSeatPriceMonthly: null,
       attachmentsPerProject: null, // unlimited
@@ -98,7 +98,7 @@ export const PLANS = {
       aiChatsPerMonth: 0,
       portals: 1,
       versionHistoryDays: 30,
-      exportFormats: ['pdf'],
+      exportFormats: ["pdf"],
     },
     features: {
       shareViewOnly: true,
@@ -116,12 +116,12 @@ export const PLANS = {
 
   // ── Pro ───────────────────────────────────────────────────────
   pro: {
-    id: 'pro',
-    name: 'Pro',
-    tagline: 'Small teams up to 5 seats',
+    id: "pro",
+    name: "Pro",
+    tagline: "Small teams up to 5 seats",
     prices: {
-      monthly: 3800,     // $38.00
-      annual: 2900,      // $29.00/mo (billed $348/yr)
+      monthly: 3800, // $38.00
+      annual: 2900, // $29.00/mo (billed $348/yr)
       annualTotal: 34800,
     },
     limits: {
@@ -131,9 +131,9 @@ export const PLANS = {
       attachmentsPerProject: null,
       maxFileSizeMb: 50,
       aiChatsPerMonth: 50,
-      portals: null,   // unlimited
+      portals: null, // unlimited
       versionHistoryDays: null, // full
-      exportFormats: ['pdf', 'google_docs'],
+      exportFormats: ["pdf", "google_docs"],
     },
     features: {
       shareViewOnly: true,
@@ -151,24 +151,24 @@ export const PLANS = {
 
   // ── Team ──────────────────────────────────────────────────────
   team: {
-    id: 'team',
-    name: 'Team',
-    tagline: 'Mid-size companies (6+ users)',
+    id: "team",
+    name: "Team",
+    tagline: "Mid-size companies (6+ users)",
     prices: {
-      monthly: 2400,     // $24.00/user/mo
-      annual: 1900,      // $19.00/user/mo (billed annually)
+      monthly: 2400, // $24.00/user/mo
+      annual: 1900, // $19.00/user/mo (billed annually)
       annualTotal: null, // computed: 1900 * 12 * seats
     },
     limits: {
       projects: null,
-      seats: null,       // unlimited
+      seats: null, // unlimited
       extraSeatPriceMonthly: 2400, // each extra seat = $24/mo (monthly plan)
       attachmentsPerProject: null,
       maxFileSizeMb: 100,
       aiChatsPerMonth: null, // unlimited
       portals: null,
       versionHistoryDays: null,
-      exportFormats: ['pdf', 'google_docs', 'notion'],
+      exportFormats: ["pdf", "google_docs", "notion"],
     },
     features: {
       shareViewOnly: true,
@@ -197,7 +197,7 @@ export function computeMonthlyPrice(planId, cycle, seats = 1) {
   const plan = PLANS[planId];
   if (!plan) throw new Error(`Unknown plan: ${planId}`);
   const perUnit = plan.prices[cycle];
-  if (planId === 'team') return perUnit * seats;
+  if (planId === "team") return perUnit * seats;
   return perUnit;
 }
 
@@ -209,7 +209,7 @@ export function computeMonthlyPrice(planId, cycle, seats = 1) {
 export function computeAnnualTotal(planId, seats = 1) {
   const plan = PLANS[planId];
   if (!plan) throw new Error(`Unknown plan: ${planId}`);
-  if (planId === 'team') return plan.prices.annual * 12 * seats;
+  if (planId === "team") return plan.prices.annual * 12 * seats;
   return plan.prices.annualTotal;
 }
 

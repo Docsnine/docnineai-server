@@ -42,7 +42,6 @@ import {
 } from "../config/email.js";
 import { computeMonthlyPrice } from "../config/plans.js";
 
-
 /**
  * Process all past_due subscriptions.
  * Called daily by the cron job at 00:00 UTC.

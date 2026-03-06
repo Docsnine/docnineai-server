@@ -65,7 +65,8 @@ export async function listAttachments(req, res) {
 
     return ok(res, { attachments });
   } catch (err) {
-    if (err.code === "PROJECT_NOT_FOUND") return fail(res, err.code, err.message, 404);
+    if (err.code === "PROJECT_NOT_FOUND")
+      return fail(res, err.code, err.message, 404);
     if (err.code === "FORBIDDEN") return fail(res, err.code, err.message, 403);
     return serverError(res, err, "listAttachments");
   }
@@ -81,11 +82,21 @@ export async function uploadAttachment(req, res) {
     await assertWriteAccess(req.params.id, req.user.userId);
 
     if (!req.file) {
-      return fail(res, "NO_FILE", "No file was uploaded. Use multipart/form-data with field 'file'.", 400);
+      return fail(
+        res,
+        "NO_FILE",
+        "No file was uploaded. Use multipart/form-data with field 'file'.",
+        400,
+      );
     }
 
     if (req.file.size > MAX_SIZE_BYTES) {
-      return fail(res, "FILE_TOO_LARGE", `File exceeds the 10 MB limit (got ${(req.file.size / 1024 / 1024).toFixed(2)} MB).`, 413);
+      return fail(
+        res,
+        "FILE_TOO_LARGE",
+        `File exceeds the 10 MB limit (got ${(req.file.size / 1024 / 1024).toFixed(2)} MB).`,
+        413,
+      );
     }
 
     // Resolve uploader display name
@@ -107,7 +118,8 @@ export async function uploadAttachment(req, res) {
     const { data: _omit, ...meta } = attachment.toObject();
     return ok(res, { attachment: meta }, "File uploaded.", 201);
   } catch (err) {
-    if (err.code === "PROJECT_NOT_FOUND") return fail(res, err.code, err.message, 404);
+    if (err.code === "PROJECT_NOT_FOUND")
+      return fail(res, err.code, err.message, 404);
     if (err.code === "FORBIDDEN") return fail(res, err.code, err.message, 403);
     return serverError(res, err, "uploadAttachment");
   }
@@ -136,7 +148,10 @@ export async function downloadAttachment(req, res) {
       : "attachment";
 
     // Encode filename for Content-Disposition (handles spaces & non-ASCII)
-    const encoded = encodeURIComponent(attachment.fileName).replace(/'/g, "%27");
+    const encoded = encodeURIComponent(attachment.fileName).replace(
+      /'/g,
+      "%27",
+    );
 
     res.setHeader("Content-Type", attachment.mimeType);
     res.setHeader(
@@ -147,7 +162,8 @@ export async function downloadAttachment(req, res) {
     res.setHeader("Cache-Control", "private, max-age=3600");
     res.send(attachment.data);
   } catch (err) {
-    if (err.code === "PROJECT_NOT_FOUND") return fail(res, err.code, err.message, 404);
+    if (err.code === "PROJECT_NOT_FOUND")
+      return fail(res, err.code, err.message, 404);
     if (err.code === "FORBIDDEN") return fail(res, err.code, err.message, 403);
     return serverError(res, err, "downloadAttachment");
   }
@@ -163,7 +179,12 @@ export async function updateAttachment(req, res) {
 
     const { description } = req.body;
     if (typeof description !== "string") {
-      return fail(res, "VALIDATION_ERROR", "description must be a string.", 422);
+      return fail(
+        res,
+        "VALIDATION_ERROR",
+        "description must be a string.",
+        422,
+      );
     }
 
     const attachment = await Attachment.findOneAndUpdate(
@@ -178,7 +199,8 @@ export async function updateAttachment(req, res) {
 
     return ok(res, { attachment }, "Description updated.");
   } catch (err) {
-    if (err.code === "PROJECT_NOT_FOUND") return fail(res, err.code, err.message, 404);
+    if (err.code === "PROJECT_NOT_FOUND")
+      return fail(res, err.code, err.message, 404);
     if (err.code === "FORBIDDEN") return fail(res, err.code, err.message, 403);
     return serverError(res, err, "updateAttachment");
   }
@@ -203,7 +225,8 @@ export async function deleteAttachment(req, res) {
 
     return ok(res, null, "Attachment deleted.");
   } catch (err) {
-    if (err.code === "PROJECT_NOT_FOUND") return fail(res, err.code, err.message, 404);
+    if (err.code === "PROJECT_NOT_FOUND")
+      return fail(res, err.code, err.message, 404);
     if (err.code === "FORBIDDEN") return fail(res, err.code, err.message, 403);
     return serverError(res, err, "deleteAttachment");
   }

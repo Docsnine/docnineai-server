@@ -167,7 +167,9 @@ export const rules = {
 
   /** POST /auth/change-password */
   changePassword: [
-    body("currentPassword").notEmpty().withMessage("Current password is required"),
+    body("currentPassword")
+      .notEmpty()
+      .withMessage("Current password is required"),
     passwordField("newPassword"),
     body("confirmNewPassword")
       .notEmpty()

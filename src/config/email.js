@@ -29,10 +29,10 @@ function getTransporter() {
 
   if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
     // Dev fallback: log emails instead of sending
-    console.warn("⚠️  SMTP not configured — emails will be logged to console");
+    console.warn("SMTP not configured — emails will be logged to console");
     _transporter = {
       sendMail: async (opts) => {
-        console.log("\n📧 [EMAIL — not sent, SMTP unconfigured]");
+        console.log("\n [EMAIL — not sent, SMTP unconfigured]");
         console.log(`   To:      ${opts.to}`);
         console.log(`   Subject: ${opts.subject}`);
         console.log(`   Body:    ${opts.text || "(html only)"}\n`);
@@ -270,7 +270,7 @@ export async function sendPlanUpgradedEmail({
   await getTransporter().sendMail({
     from: FROM,
     to,
-    subject: `You've upgraded to ${newPlanName} — Docnine`,
+    subject: `You've upgraded to ${newPlanName}`,
     text: `Hi ${name},\n\nYou've been upgraded to ${newPlanName}. New features are available now. Next renewal: ${renewDate}.\n\nManage billing: ${billingUrl}`,
     html: emailTemplate({
       title: `Upgraded to ${newPlanName}`,
@@ -425,7 +425,7 @@ export async function sendCardExpiryWarningEmail({
   await getTransporter().sendMail({
     from: FROM,
     to,
-    subject: "Your payment card is expiring soon — Docnine",
+    subject: "Your payment card is expiring soon",
     text: `Hi ${name},\n\nYour card ${cardLabel} expires at ${expMonth}/${expYear}. Update it to avoid payment failures:\n${billingUrl}`,
     html: emailTemplate({
       title: "Your card is expiring soon",

@@ -137,7 +137,10 @@ export async function getMe(req, res) {
 export async function updateProfile(req, res) {
   const { name, email } = req.body;
   try {
-    const user = await authService.updateProfile(req.user.userId, { name, email });
+    const user = await authService.updateProfile(req.user.userId, {
+      name,
+      email,
+    });
     return ok(res, { user }, "Profile updated successfully.");
   } catch (err) {
     if (["USER_NOT_FOUND", "EMAIL_TAKEN"].includes(err.code))
@@ -150,7 +153,10 @@ export async function updateProfile(req, res) {
 export async function changePassword(req, res) {
   const { currentPassword, newPassword } = req.body;
   try {
-    await authService.changePassword(req.user.userId, { currentPassword, newPassword });
+    await authService.changePassword(req.user.userId, {
+      currentPassword,
+      newPassword,
+    });
     // Clear the refresh cookie — user must log in again with the new password.
     res.clearCookie("refreshToken", { ...getRefreshCookieOpts(), maxAge: 0 });
     return ok(res, null, "Password changed successfully. Please log in again.");
@@ -176,21 +182,26 @@ export function githubLoginStart(req, res) {
 // ── GET /auth/github/callback ─────────────────────────────────
 export async function githubLoginCallback(req, res) {
   const { code, error } = req.query;
-  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+  const frontendUrl = process.env.FRONTEND_URL || "";
 
   if (error || !code) {
     return res.redirect(`${frontendUrl}/auth/callback?error=access_denied`);
   }
 
   try {
-    const { user, accessToken, refreshToken } = await authService.githubSocialLogin(code);
+    const { user, accessToken, refreshToken } =
+      await authService.githubSocialLogin(code);
     res.cookie("refreshToken", refreshToken, getRefreshCookieOpts());
     // Pass access token to frontend via URL so it can store in memory
     return res.redirect(
       `${frontendUrl}/auth/callback?accessToken=${encodeURIComponent(accessToken)}&userId=${user._id}`,
     );
   } catch (err) {
-    const knownCodes = ["GITHUB_CODE_INVALID", "GITHUB_NO_EMAIL", "GITHUB_LOGIN_NOT_CONFIGURED"];
+    const knownCodes = [
+      "GITHUB_CODE_INVALID",
+      "GITHUB_NO_EMAIL",
+      "GITHUB_LOGIN_NOT_CONFIGURED",
+    ];
     const code_ = knownCodes.includes(err.code) ? err.code : "OAUTH_ERROR";
     return res.redirect(`${frontendUrl}/auth/callback?error=${code_}`);
   }
@@ -218,13 +229,18 @@ export async function googleLoginCallback(req, res) {
   }
 
   try {
-    const { user, accessToken, refreshToken } = await authService.googleSocialLogin(code);
+    const { user, accessToken, refreshToken } =
+      await authService.googleSocialLogin(code);
     res.cookie("refreshToken", refreshToken, getRefreshCookieOpts());
     return res.redirect(
       `${frontendUrl}/auth/callback?accessToken=${encodeURIComponent(accessToken)}&userId=${user._id}`,
     );
   } catch (err) {
-    const knownCodes = ["GOOGLE_CODE_INVALID", "GOOGLE_NO_EMAIL", "GOOGLE_LOGIN_NOT_CONFIGURED"];
+    const knownCodes = [
+      "GOOGLE_CODE_INVALID",
+      "GOOGLE_NO_EMAIL",
+      "GOOGLE_LOGIN_NOT_CONFIGURED",
+    ];
     const code_ = knownCodes.includes(err.code) ? err.code : "OAUTH_ERROR";
     return res.redirect(`${frontendUrl}/auth/callback?error=${code_}`);
   }
@@ -241,7 +257,8 @@ export async function googleDocsCallback(req, res) {
   }
 
   try {
-    const { handleGoogleDocsCallback } = await import("../../services/googleDocs.service.js");
+    const { handleGoogleDocsCallback } =
+      await import("../../services/googleDocs.service.js");
     await handleGoogleDocsCallback(code, userId);
     return res.redirect(`${frontendUrl}/settings?googleDocs=connected`);
   } catch (err) {
@@ -253,7 +270,8 @@ export async function googleDocsCallback(req, res) {
 // ── GET /auth/google-docs/status ──────────────────────────────
 export async function googleDocsStatusForUser(req, res) {
   try {
-    const { getGoogleDocsConnectionStatus } = await import("../../services/googleDocs.service.js");
+    const { getGoogleDocsConnectionStatus } =
+      await import("../../services/googleDocs.service.js");
     const status = await getGoogleDocsConnectionStatus(req.user.userId);
     return ok(res, status);
   } catch (err) {
@@ -264,7 +282,8 @@ export async function googleDocsStatusForUser(req, res) {
 // ── GET /auth/google-docs/start ───────────────────────────────
 export async function googleDocsStart(req, res) {
   try {
-    const { getGoogleDocsOAuthUrl } = await import("../../services/googleDocs.service.js");
+    const { getGoogleDocsOAuthUrl } =
+      await import("../../services/googleDocs.service.js");
     const url = getGoogleDocsOAuthUrl(req.user.userId);
     return ok(res, { url }, "Redirect to Google to grant Drive/Docs access.");
   } catch (err) {
@@ -277,7 +296,8 @@ export async function googleDocsStart(req, res) {
 // ── DELETE /auth/google-docs ──────────────────────────────────
 export async function googleDocsDisconnectForUser(req, res) {
   try {
-    const { disconnectGoogleDocs } = await import("../../services/googleDocs.service.js");
+    const { disconnectGoogleDocs } =
+      await import("../../services/googleDocs.service.js");
     await disconnectGoogleDocs(req.user.userId);
     return ok(res, null, "Google Drive disconnected.");
   } catch (err) {
@@ -289,10 +309,16 @@ export async function googleDocsDisconnectForUser(req, res) {
 export async function notionConnect(req, res) {
   const { apiKey, parentPageId, workspaceName } = req.body;
   if (!apiKey || !parentPageId) {
-    return fail(res, "VALIDATION_ERROR", "apiKey and parentPageId are required.", 400);
+    return fail(
+      res,
+      "VALIDATION_ERROR",
+      "apiKey and parentPageId are required.",
+      400,
+    );
   }
   try {
-    const { saveNotionSettings } = await import("../../services/notion.service.js");
+    const { saveNotionSettings } =
+      await import("../../services/notion.service.js");
     const status = await saveNotionSettings({
       userId: req.user.userId,
       apiKey,
@@ -308,7 +334,8 @@ export async function notionConnect(req, res) {
 // ── GET /auth/notion/status ───────────────────────────────────
 export async function notionStatus(req, res) {
   try {
-    const { getNotionStatus } = await import("../../services/notion.service.js");
+    const { getNotionStatus } =
+      await import("../../services/notion.service.js");
     const status = await getNotionStatus(req.user.userId);
     return ok(res, status);
   } catch (err) {
@@ -319,7 +346,8 @@ export async function notionStatus(req, res) {
 // ── DELETE /auth/notion ───────────────────────────────────────
 export async function notionDisconnect(req, res) {
   try {
-    const { disconnectNotion } = await import("../../services/notion.service.js");
+    const { disconnectNotion } =
+      await import("../../services/notion.service.js");
     await disconnectNotion(req.user.userId);
     return ok(res, null, "Notion disconnected.");
   } catch (err) {

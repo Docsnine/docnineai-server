@@ -1,5 +1,5 @@
 // ===================================================================
-// notion.service.js — Per-user Notion integration settings
+// Per-user Notion integration settings
 //
 // Handles saving, reading, and removing users' Notion API keys and
 // parent page IDs. The API key is AES-256-GCM encrypted at rest.
@@ -15,7 +15,12 @@ import { encrypt, decrypt } from "../utils/crypto.util.js";
  * @param {{ userId: string, apiKey: string, parentPageId: string, workspaceName?: string }} opts
  * @returns {Promise<{ connected: boolean, parentPageId: string, workspaceName: string|null, connectedAt: Date }>}
  */
-export async function saveNotionSettings({ userId, apiKey, parentPageId, workspaceName = null }) {
+export async function saveNotionSettings({
+  userId,
+  apiKey,
+  parentPageId,
+  workspaceName = null,
+}) {
   const apiKeyEncrypted = encrypt(apiKey.trim());
 
   const doc = await NotionSettings.findOneAndUpdate(
@@ -63,7 +68,9 @@ export async function getNotionStatus(userId) {
  * @returns {Promise<{ apiKey: string, parentPageId: string }>}
  */
 export async function getDecryptedNotionSettings(userId) {
-  const doc = await NotionSettings.findOne({ userId }).select("+apiKeyEncrypted");
+  const doc = await NotionSettings.findOne({ userId }).select(
+    "+apiKeyEncrypted",
+  );
   if (!doc) throw new Error("NOTION_NOT_CONNECTED");
 
   return {

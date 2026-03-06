@@ -63,16 +63,6 @@ router.post(
       const signature = req.headers["x-hub-signature-256"] || "";
       const event = req.headers["x-github-event"] || "";
 
-      console.log(
-        `[webhook] Incoming — event: ${event || "unknown"}, signature: ${signature.slice(0, 20)}...`,
-      );
-      console.log(
-        `[webhook] Body type: ${Buffer.isBuffer(payload) ? "Buffer ✓" : typeof payload + " ✗ — raw body middleware may not be applied"}`,
-      );
-      console.log(
-        `[webhook] Payload size: ${Buffer.isBuffer(payload) ? payload.length : (JSON.stringify(payload)?.length ?? 0)} bytes`,
-      );
-
       const result = await _handleWebhook({
         payload,
         signature,
@@ -80,34 +70,13 @@ router.post(
         secret: process.env.WEBHOOK_SECRET,
       });
 
-      console.log(
-        `[webhook] → ${result.status} · triggered: ${result.body.triggered?.length ?? 0}`,
-      );
       res.status(result.status).json(result.body);
     } catch (err) {
-      console.error("[webhook] ✗ Unhandled error:", err.message, err.stack);
+      console.error("[webhook] Unhandled error:", err.message, err.stack);
       res.status(500).json({ error: err.message });
     }
   },
 );
-
-// api-router.js — add this temporarily
-router.get("/webhook-test", (req, res) => {
-  const secret = process.env.WEBHOOK_SECRET || "";
-  const payload = Buffer.from('{"test":true}', "utf8");
-  const computed =
-    "sha256=" +
-    crypto.createHmac("sha256", secret).update(payload).digest("hex");
-
-  res.json({
-    secretLength: secret.length,
-    secretFirst4: secret.slice(0, 4),
-    secretLast4: secret.slice(-4),
-    testSignature: computed,
-    hasNewline: secret.includes("\n"),
-    hasSpace: secret.includes(" "),
-  });
-});
 
 // ── Service status tracker ────────────────────────────────────────
 

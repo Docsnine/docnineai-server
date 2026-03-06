@@ -1,5 +1,5 @@
 // ===================================================================
-// Global LLM Rate-Limited Queue
+// Global LLM Config File
 // ===================================================================
 // Problem: 4 agents running in parallel all share one 6,000 TPM
 // bucket. They fire independently → instant rate limit storm.
@@ -50,7 +50,9 @@ function recordTokens(tokens) {
 }
 
 function msUntilCapacity(needed) {
-  // How long until oldest entries roll out of window to free up space?
+  /**
+   *  How long until oldest entries roll out of window to free up space?
+   */
   let freed = 0;
   const now = Date.now();
   const cutoff = now - TPM_WINDOW_MS;
@@ -63,6 +65,7 @@ function msUntilCapacity(needed) {
       return Math.max(0, expiresAt - now + 200); // +200ms buffer
     }
   }
+
   return 0;
 }
 
@@ -86,6 +89,7 @@ export async function llmCall({ systemPrompt, userContent, temperature = 0 }) {
         .catch(reject),
     );
   });
+
   return result;
 }
 
@@ -94,9 +98,7 @@ async function executeCall({ systemPrompt, userContent, temperature }) {
   const estimatedTotal = estimatedInput + 512; // assume ~512 output tokens
 
   if (estimatedInput > 4000) {
-    console.warn(
-      `   ⚠️  Request ~${estimatedInput} tokens — trimming recommended`,
-    );
+    console.warn(`Request ~${estimatedInput} tokens — trimming recommended`);
   }
 
   // Wait if adding this call would exceed TPM window
@@ -105,7 +107,7 @@ async function executeCall({ systemPrompt, userContent, temperature }) {
     const waitMs = msUntilCapacity(estimatedTotal) || 5000;
     if (!waited) {
       console.log(
-        `   🪣 Token bucket full (~${tokensUsedInWindow()}/${TPM_LIMIT} TPM used). Waiting ${(waitMs / 1000).toFixed(1)}s…`,
+        `-- Token bucket full (~${tokensUsedInWindow()}/${TPM_LIMIT} TPM used). Waiting ${(waitMs / 1000).toFixed(1)}s…`,
       );
       waited = true;
     }
@@ -129,7 +131,7 @@ async function executeCall({ systemPrompt, userContent, temperature }) {
 
   const remaining = TPM_LIMIT - tokensUsedInWindow();
   console.log(
-    `   ✓ LLM call done (${actualTokens} tokens | ${remaining} remaining in window)`,
+    `✓ LLM call done (${actualTokens} tokens | ${remaining} remaining in window)`,
   );
 
   return response.choices[0].message.content.trim();

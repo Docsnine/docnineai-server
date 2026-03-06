@@ -200,7 +200,7 @@ export async function getUserRepos(
     perPage = 30,
     type = "all", // all | owner | member | public | private
     sort = "updated", // created | updated | pushed | full_name
-    org = null,      // if provided, fetch org repos instead of /user/repos
+    org = null, // if provided, fetch org repos instead of /user/repos
   } = {},
 ) {
   const token = await getDecryptedToken(userId);

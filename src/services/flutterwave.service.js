@@ -43,7 +43,7 @@ function handleFLWError(err, context) {
     err.response?.data?.error ||
     err.message ||
     "Flutterwave error";
-  console.error(`❌ [FLW:${context}] ${status || ""} ${msg}`);
+  console.error(`[FLW:${context}] ${status || ""} ${msg}`);
   const error = new Error(msg);
   error.flwStatus = status;
   throw error;

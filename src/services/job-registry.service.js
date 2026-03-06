@@ -27,7 +27,9 @@ export function registerJob(jobId) {
   console.log(`[job-registry] Registering job ${jobId}`);
   jobs.set(jobId, { status: "running", events: [], result: null });
   streams.set(jobId, new Set());
-  console.log(`[job-registry] Job ${jobId} registered · total jobs: ${jobs.size}`);
+  console.log(
+    `[job-registry] Job ${jobId} registered · total jobs: ${jobs.size}`,
+  );
 }
 
 /**
@@ -81,7 +83,10 @@ export function finishJob(jobId, result) {
  * @param {string} jobId
  * @param {string} [message]
  */
-export function recoverLostJob(jobId, message = "Pipeline interrupted by server restart.") {
+export function recoverLostJob(
+  jobId,
+  message = "Pipeline interrupted by server restart.",
+) {
   const errorEvent = {
     step: "error",
     status: "error",

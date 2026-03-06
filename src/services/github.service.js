@@ -76,7 +76,7 @@ export async function getFileTree(owner, repo, branch) {
   );
   if (data.truncated) {
     console.warn(
-      "⚠️  Tree truncated — repo is very large, some files may be skipped.",
+      "-- Tree truncated — repo is very large, some files may be skipped.",
     );
   }
   return data.tree
@@ -95,7 +95,7 @@ export async function getFileTreeWithSha(owner, repo, branch) {
     { headers: ghHeaders() },
   );
   if (data.truncated) {
-    console.warn("⚠️  Tree truncated — some files may be missed in diff.");
+    console.warn("-- Tree truncated — some files may be missed in diff.");
   }
   return data.tree
     .filter((item) => item.type === "blob")

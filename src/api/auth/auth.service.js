@@ -15,7 +15,6 @@ import {
   sendPasswordResetEmail,
 } from "../../config/email.js";
 
-// ── Signup ────────────────────────────────────────────────────
 
 /**
  * Create a new user and send a verification email.
@@ -46,17 +45,17 @@ export async function signup({ name, email, password }) {
 
   // Send verification email — fire-and-forget (don't fail signup if SMTP is down)
   sendVerificationEmail({ to: email, token: rawToken, name }).catch((err) =>
-    console.error("⚠️  Failed to send verification email:", err.message),
+    console.error("Failed to send verification email:", err.message),
   );
 
   const { accessToken, refreshToken } = await issueTokens(user);
   return { user, accessToken, refreshToken };
 }
 
-// ── Login ─────────────────────────────────────────────────────
 
 /**
  * Validate credentials and issue tokens.
+ * 
  * @returns {{ user: User, accessToken: string, refreshToken: string }}
  * @throws with code INVALID_CREDENTIALS (same message for bad email or bad password)
  */
@@ -364,7 +363,9 @@ export async function githubSocialLogin(code) {
 
   const githubAccessToken = tokenRes.data.access_token;
   if (!githubAccessToken) {
-    const err = new Error("GitHub did not return an access token. The code may have expired.");
+    const err = new Error(
+      "GitHub did not return an access token. The code may have expired.",
+    );
     err.code = "GITHUB_CODE_INVALID";
     err.status = 400;
     throw err;
@@ -379,10 +380,14 @@ export async function githubSocialLogin(code) {
   ]);
 
   const ghUser = userRes.data;
-  const primaryEmail = emailsRes.data.find((e) => e.primary && e.verified)?.email;
+  const primaryEmail = emailsRes.data.find(
+    (e) => e.primary && e.verified,
+  )?.email;
 
   if (!primaryEmail) {
-    const err = new Error("No verified primary email found on your GitHub account.");
+    const err = new Error(
+      "No verified primary email found on your GitHub account.",
+    );
     err.code = "GITHUB_NO_EMAIL";
     err.status = 400;
     throw err;
@@ -434,7 +439,11 @@ export async function googleSocialLogin(code) {
     GOOGLE_LOGIN_REDIRECT_URI,
   } = process.env;
 
-  if (!GOOGLE_LOGIN_CLIENT_ID || !GOOGLE_LOGIN_CLIENT_SECRET || !GOOGLE_LOGIN_REDIRECT_URI) {
+  if (
+    !GOOGLE_LOGIN_CLIENT_ID ||
+    !GOOGLE_LOGIN_CLIENT_SECRET ||
+    !GOOGLE_LOGIN_REDIRECT_URI
+  ) {
     const err = new Error(
       "Google Login requires GOOGLE_LOGIN_CLIENT_ID, GOOGLE_LOGIN_CLIENT_SECRET, " +
         "and GOOGLE_LOGIN_REDIRECT_URI.",
@@ -508,7 +517,9 @@ export function getGithubLoginUrl() {
   const params = new URLSearchParams({
     client_id: GITHUB_LOGIN_CLIENT_ID,
     scope: "read:user user:email",
-    ...(GITHUB_LOGIN_REDIRECT_URI ? { redirect_uri: GITHUB_LOGIN_REDIRECT_URI } : {}),
+    ...(GITHUB_LOGIN_REDIRECT_URI
+      ? { redirect_uri: GITHUB_LOGIN_REDIRECT_URI }
+      : {}),
   });
   return `https://github.com/login/oauth/authorize?${params}`;
 }

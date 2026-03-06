@@ -215,24 +215,28 @@ export async function activateFromPayment(fwTx) {
       // 1. Invoice stores planId (new checkout & upgrade via payment link)
       // 2. Fall back to sub.pendingPlan (upgrade set before redirect)
       // 3. Fall back to current plan (renewal)
-      const activatedPlan  = invoice.planId       || sub.pendingPlan       || sub.plan;
-      const activatedCycle = invoice.billingCycle  || sub.pendingBillingCycle || sub.billingCycle || "monthly";
-      const activatedSeats = invoice.seats         || sub.seats             || 1;
+      const activatedPlan = invoice.planId || sub.pendingPlan || sub.plan;
+      const activatedCycle =
+        invoice.billingCycle ||
+        sub.pendingBillingCycle ||
+        sub.billingCycle ||
+        "monthly";
+      const activatedSeats = invoice.seats || sub.seats || 1;
 
       const periodStart = new Date();
-      const periodEnd   = addPeriod(periodStart, activatedCycle);
+      const periodEnd = addPeriod(periodStart, activatedCycle);
 
-      sub.plan                = activatedPlan;
-      sub.billingCycle        = activatedCycle;
-      sub.seats               = activatedSeats;
-      sub.status              = "active";
-      sub.currentPeriodStart  = periodStart;
-      sub.currentPeriodEnd    = periodEnd;
-      sub.pendingPlan         = null;
+      sub.plan = activatedPlan;
+      sub.billingCycle = activatedCycle;
+      sub.seats = activatedSeats;
+      sub.status = "active";
+      sub.currentPeriodStart = periodStart;
+      sub.currentPeriodEnd = periodEnd;
+      sub.pendingPlan = null;
       sub.pendingBillingCycle = null;
       sub.dunningAttemptCount = 0;
-      sub.dunningStartedAt    = null;
-      sub.cancelAtPeriodEnd   = false;
+      sub.dunningStartedAt = null;
+      sub.cancelAtPeriodEnd = false;
       await sub.save();
     }
   }
@@ -349,7 +353,10 @@ export async function changePlan({ userId, newPlanId, newCycle, seats }) {
         return { type: "upgrade", immediate: true };
       } catch (tokenErr) {
         // Token charge failed (e.g. currency mismatch) — fall back to payment link
-        console.warn("[changePlan] Token charge failed, falling back to payment link:", tokenErr.message);
+        console.warn(
+          "[changePlan] Token charge failed, falling back to payment link:",
+          tokenErr.message,
+        );
         invoice.status = "void";
         await invoice.save();
         // re-create a fresh invoice for the redirect path below
@@ -368,7 +375,10 @@ export async function changePlan({ userId, newPlanId, newCycle, seats }) {
           billingCycle: newCycle,
           seats,
           lineItems: [
-            { description: `Prorated upgrade: ${currentPlan} → ${newPlanId}`, amount: proratedCents },
+            {
+              description: `Prorated upgrade: ${currentPlan} → ${newPlanId}`,
+              amount: proratedCents,
+            },
           ],
         });
         const { paymentLink } = await initializePayment({
@@ -507,10 +517,17 @@ export async function addSeats(userId, additionalSeats) {
       sub.seats = (sub.seats || 1) + additionalSeats;
       await sub.save();
 
-      return { type: "immediate", extraSeats: sub.extraSeats, totalSeats: sub.seats };
+      return {
+        type: "immediate",
+        extraSeats: sub.extraSeats,
+        totalSeats: sub.seats,
+      };
     } catch (tokenErr) {
       // Token charge failed (e.g. currency mismatch) — fall back to payment link
-      console.warn("[addSeats] Token charge failed, falling back to payment link:", tokenErr.message);
+      console.warn(
+        "[addSeats] Token charge failed, falling back to payment link:",
+        tokenErr.message,
+      );
       invoice.status = "void";
       await invoice.save();
     }

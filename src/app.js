@@ -26,11 +26,15 @@ let initialized = false;
  */
 async function initOnce() {
   if (initialized) return;
+
   await connectDB();
+
   // Best-effort recovery — don't block the request if it fails
   await recoverOrphanedJobs();
+
   // Load legacy services (webhook handler, orchestrator, etc.)
   await loadLegacyServices();
+
   initialized = true;
 }
 
@@ -49,18 +53,24 @@ app.use(async (req, res, next) => {
 // receives a concrete Access-Control-Allow-Origin (not "*"), which is
 // required for credentialed cross-origin requests (cookies).
 // In development, reflect the request origin for convenience.
-const FRONTEND_ORIGIN = process.env.FRONTEND_URL || "http://localhost:3000";
+const FRONTEND_ORIGIN = process.env.FRONTEND_URL || "";
 app.use(
   cors({
     origin: (incomingOrigin, callback) => {
       // Allow requests with no origin (curl, Postman, server-to-server)
       if (!incomingOrigin) return callback(null, true);
+
       // Always allow the configured frontend origin
       if (incomingOrigin === FRONTEND_ORIGIN) return callback(null, true);
+
       // In development also allow any localhost origin
-      if (process.env.NODE_ENV !== "production" && incomingOrigin.startsWith("http://localhost")) {
+      if (
+        process.env.NODE_ENV !== "production" &&
+        incomingOrigin.startsWith("http://localhost")
+      ) {
         return callback(null, true);
       }
+
       callback(new Error(`CORS: origin ${incomingOrigin} not allowed`));
     },
     credentials: true,
@@ -109,7 +119,7 @@ app.get("/health/check", (_req, res) => {
 app.get("/", (_req, res) => {
   res.json({
     success: true,
-    error: "Welcome to docnine server"
+    error: "Welcome to docnine AI server",
   });
 });
 
@@ -125,7 +135,7 @@ app.use((req, res) => {
 
 // ── Error handler ──────────────────────────
 app.use((err, req, res, _next) => {
-  console.error("❌ Error:", err);
+  console.error("[Error]: ", err);
   res.status(500).json({
     success: false,
     error: err.message || "Internal error",

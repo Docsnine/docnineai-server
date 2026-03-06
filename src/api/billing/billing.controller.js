@@ -87,7 +87,10 @@ export async function getSubscription(req, res) {
         aiChatsUsed: usage?.aiChatsUsed ?? 0,
         aiChatsResetAt: usage?.aiChatsResetAt ?? null,
         // Count real (non-archived) projects for accuracy
-        projectCount: await Project.countDocuments({ userId: sub.userId, status: { $ne: "archived" } }),
+        projectCount: await Project.countDocuments({
+          userId: sub.userId,
+          status: { $ne: "archived" },
+        }),
         portalCount: usage?.portalCount ?? 0,
         activeShareCount: usage?.activeShareCount ?? 0,
       },

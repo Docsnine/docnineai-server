@@ -29,7 +29,11 @@ export function protect(req, res, next) {
 
   try {
     const payload = verifyAccessToken(token);
-    req.user = { userId: payload.sub, email: payload.email, role: payload.role ?? "user" };
+    req.user = {
+      userId: payload.sub,
+      email: payload.email,
+      role: payload.role ?? "user",
+    };
     next();
   } catch (err) {
     if (err.name === "TokenExpiredError") {
@@ -60,7 +64,11 @@ export function optionalAuth(req, res, next) {
   const token = header.slice(7).trim();
   try {
     const payload = verifyAccessToken(token);
-    req.user = { userId: payload.sub, email: payload.email, role: payload.role ?? "user" };
+    req.user = {
+      userId: payload.sub,
+      email: payload.email,
+      role: payload.role ?? "user",
+    };
   } catch {
     // Invalid or expired — treat as anonymous
   }
@@ -74,7 +82,12 @@ export function optionalAuth(req, res, next) {
 export function requireRole(...roles) {
   return (req, res, next) => {
     if (!req.user || !roles.includes(req.user.role)) {
-      return fail(res, "FORBIDDEN", "You do not have permission to access this resource.", 403);
+      return fail(
+        res,
+        "FORBIDDEN",
+        "You do not have permission to access this resource.",
+        403,
+      );
     }
     next();
   };

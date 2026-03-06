@@ -39,7 +39,7 @@ let _started = false;
 export function startBillingCron() {
   if (_started) return;
   _started = true;
-  console.log("🕐 Billing cron jobs starting…");
+  console.log("-- Billing cron jobs starting…");
 
   // Daily at 00:00 UTC
   const DAILY = "0 0 * * *";
@@ -51,7 +51,7 @@ export function startBillingCron() {
   cron.schedule(DAILY, runResetAiUsage, { timezone: "UTC" });
   cron.schedule(DAILY, runFlagExpiringCards, { timezone: "UTC" });
 
-  console.log("✅ Billing cron jobs registered (daily @ 00:00 UTC)");
+  console.log("-- Billing cron jobs registered (daily @ 00:00 UTC)");
 }
 
 // ── Job handlers ─────────────────────────────────────────────────

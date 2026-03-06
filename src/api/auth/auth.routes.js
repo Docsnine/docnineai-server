@@ -73,7 +73,19 @@ router.delete("/notion", protect, wrap(ctrl.notionDisconnect));
 // ── Protected ─────────────────────────────────────────────────
 router.post("/logout", protect, wrap(ctrl.logout));
 router.get("/me", protect, wrap(ctrl.getMe));
-router.patch("/profile", protect, rules.updateProfile, validate, wrap(ctrl.updateProfile));
-router.post("/change-password", protect, rules.changePassword, validate, wrap(ctrl.changePassword));
+router.patch(
+  "/profile",
+  protect,
+  rules.updateProfile,
+  validate,
+  wrap(ctrl.updateProfile),
+);
+router.post(
+  "/change-password",
+  protect,
+  rules.changePassword,
+  validate,
+  wrap(ctrl.changePassword),
+);
 
 export default router;

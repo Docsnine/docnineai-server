@@ -35,17 +35,21 @@ export async function oauthStart(req, res) {
 // On success/failure, redirect the popup to the SPA's /github/oauth/complete
 // page, which postMessages the result to the parent window and closes itself.
 export async function oauthCallback(req, res) {
-  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+  const frontendUrl = process.env.FRONTEND_URL || "";
   const { code, state, error: oauthError } = req.query;
 
   if (oauthError) {
     const msg = encodeURIComponent(`GitHub denied access: ${oauthError}`);
-    return res.redirect(`${frontendUrl}/github/oauth/complete?github=error&msg=${msg}`);
+    return res.redirect(
+      `${frontendUrl}/github/oauth/complete?github=error&msg=${msg}`,
+    );
   }
 
   if (!code || !state) {
     const msg = encodeURIComponent("Missing code or state — please try again.");
-    return res.redirect(`${frontendUrl}/github/oauth/complete?github=error&msg=${msg}`);
+    return res.redirect(
+      `${frontendUrl}/github/oauth/complete?github=error&msg=${msg}`,
+    );
   }
 
   try {
@@ -54,10 +58,14 @@ export async function oauthCallback(req, res) {
       state,
     });
     const user = encodeURIComponent(githubUsername);
-    return res.redirect(`${frontendUrl}/github/oauth/complete?github=connected&user=${user}`);
+    return res.redirect(
+      `${frontendUrl}/github/oauth/complete?github=connected&user=${user}`,
+    );
   } catch (err) {
     const msg = encodeURIComponent(err.message || "GitHub connection failed.");
-    return res.redirect(`${frontendUrl}/github/oauth/complete?github=error&msg=${msg}`);
+    return res.redirect(
+      `${frontendUrl}/github/oauth/complete?github=error&msg=${msg}`,
+    );
   }
 }
 
@@ -70,7 +78,7 @@ export async function listRepos(req, res) {
   );
   const type = req.query.type || "all"; // all | owner | member | public | private
   const sort = req.query.sort || "updated"; // created | updated | pushed | full_name
-  const org = req.query.org || null;   // if set, fetch from /orgs/{org}/repos
+  const org = req.query.org || null; // if set, fetch from /orgs/{org}/repos
 
   try {
     const result = await githubService.getUserRepos(req.user.userId, {
