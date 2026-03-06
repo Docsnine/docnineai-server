@@ -582,7 +582,7 @@ function resolveApiBaseUrl(apiBaseUrl) {
 
 function buildWebhookSettings(user, apiBaseUrl) {
   const backendBase = resolveApiBaseUrl(apiBaseUrl);
-  const webhookUrl = `${backendBase}/api/webhook`;
+  const webhookUrl = `${backendBase}/webhook/github`;
 
   return {
     webhookUrl,
@@ -651,7 +651,7 @@ export async function updateWebhookSettings(
   await user.save();
 
   const backendBase = resolveApiBaseUrl(apiBaseUrl);
-  const webhookUrl = `${backendBase}/api/webhook`;
+  const webhookUrl = `${backendBase}/webhook/github`;
 
   return {
     webhookUrl,

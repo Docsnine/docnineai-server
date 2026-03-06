@@ -102,7 +102,7 @@ export async function loadServices() {
   }
 }
 
-router.post("/webhook", handleWebhook);
+router.post("/webhook/github", handleWebhook);
 
 // ── Flutterwave Webhook ────────────────────────────────────────────
 router.post("/webhook/flutterwave", handleFlutterwaveWebhook);

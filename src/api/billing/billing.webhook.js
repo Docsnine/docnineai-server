@@ -1,7 +1,7 @@
 // ===================================================================
 // Flutterwave webhook handler.
 //
-// Mounted at POST /api/webhook/flutterwave (raw body — see app.js).
+// Mounted at POST /webhook/github/flutterwave (raw body — see app.js).
 //
 // Security:
 //   1. `verif-hash` header is compared against FLW_WEBHOOK_HASH env var.
@@ -30,7 +30,7 @@ import { sendAccountDowngradedEmail } from "../../config/email.js";
 import { User } from "../../models/User.js";
 
 /**
- * POST /api/webhook/flutterwave
+ * POST /webhook/github/flutterwave
  * Express handler — receives raw Buffer body (parsed by express.raw).
  */
 export async function handleFlutterwaveWebhook(req, res) {

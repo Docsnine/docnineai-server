@@ -497,7 +497,7 @@ jobs:
 
           SIGNATURE="sha256=\$(echo -n "\${PAYLOAD}" | openssl dgst -sha256 -hmac "\${WEBHOOK_SECRET}" | awk '{print \$2}')"
 
-          echo "Sending sync request to \${APP_URL}/api/webhook"
+          echo "Sending sync request to \${APP_URL}/webhook/github"
           echo "Repository: \${REPO_URL}"
           echo "Commit: \${HEAD_COMMIT}"
 
@@ -507,7 +507,7 @@ jobs:
             -H "X-Hub-Signature-256: \${SIGNATURE}" \\
             -H "X-GitHub-Event: push" \\
             --data-binary "\${PAYLOAD}" \\
-            "\${APP_URL}/api/webhook")
+            "\${APP_URL}/webhook/github")
 
           RESPONSE=\$(cat /tmp/webhook_response.json)
           echo "HTTP Status: \${HTTP_STATUS}"

@@ -388,7 +388,7 @@ These routes are **unauthenticated** and work exactly as they did in v2. They us
 | `GET`  | `/api/export/pdf/:jobId`      | Download PDF (job must be in memory)                                  |
 | `POST` | `/api/export/notion/:jobId`   | Push to Notion (job must be in memory)                                |
 | `GET`  | `/api/export/workflow/:jobId` | Download GitHub Actions YAML                                          |
-| `POST` | `/api/webhook`                | GitHub push webhook receiver                                          |
+| `POST` | `/webhook/github`                | GitHub push webhook receiver                                          |
 
 > **Note:** Legacy export routes require the job to still be in memory. Use the authenticated `/projects/:id/export/*` routes for persistent exports.
 
@@ -441,7 +441,7 @@ Automatically regenerate documentation whenever code is pushed to the default br
 
 1. Set `WEBHOOK_SECRET` in `.env` to any random string
 2. Go to your repo → **Settings** → **Webhooks** → **Add webhook**
-   - Payload URL: `https://your-instance.com/api/webhook`
+   - Payload URL: `https://docnineai.com/webhook/github`
    - Content type: `application/json`
    - Secret: same value as `WEBHOOK_SECRET`
    - Events: **Just the push event**
