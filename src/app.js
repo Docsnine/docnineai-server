@@ -4,7 +4,7 @@ import morgan from "morgan";
 import cookieParser from "cookie-parser";
 
 import { connectDB } from "./config/db.js";
-import apiRouter from "./api/router.js";
+import apiRouter, { loadServices } from "./api/router.js";
 import { recoverOrphanedJobs } from "./api/projects/project.service.js";
 
 const app = express();
@@ -22,6 +22,7 @@ let initialized = false;
  * Initialize once per cold start (serverless-safe).
  * After DB connects, recover any projects that were left in
  * "running"/"queued" state from a previous server instance.
+ * Load services (orchestrator, chat, webhook, etc).
  */
 async function initOnce() {
   if (initialized) return;
@@ -30,6 +31,9 @@ async function initOnce() {
 
   // Best-effort recovery — don't block the request if it fails
   await recoverOrphanedJobs();
+
+  // Load optional services (webhook, chat, export, etc)
+  await loadServices();
 
   initialized = true;
 }
@@ -120,7 +124,7 @@ app.get("/", (_req, res) => {
   });
 });
 
-app.use("/", apiRouter);
+app.use("/api", apiRouter);
 
 // ── 404 ────────────────────────────────────
 app.use((req, res) => {

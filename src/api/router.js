@@ -89,9 +89,6 @@ export async function loadServices() {
   console.log(`[services] Ready: ${loaded || "none"}`);
 }
 
-// ── Global Webhook (Legacy) ────────────────────────────────────────
-// POST /webhook
-// Raw body handling is done at app.js level via express.raw({ type: "*/*" })
 router.post("/webhook", async (req, res) => {
   if (!_handleGlobalWebhook) {
     return res.status(503).json({ error: "Webhook service unavailable" });
@@ -116,8 +113,6 @@ router.post("/webhook", async (req, res) => {
   }
 });
 
-// ── Per-Project Webhook ────────────────────────────────────────────
-// POST /webhook/:projectId
 router.post("/webhook/:projectId", async (req, res) => {
   if (!_handleProjectWebhook) {
     return res.status(503).json({ error: "Webhook service unavailable" });
