@@ -85,7 +85,6 @@ app.use(
 // Webhook routes need the raw Buffer for signature verification —
 // must be registered BEFORE express.json() consumes the body.
 // The /api/webhook prefix covers both GitHub and Flutterwave webhooks,
-// including per-project endpoints (/api/webhook/:projectId).
 app.use("/api/webhook", express.raw({ type: "*/*", limit: "10mb" }));
 
 app.use(express.json({ limit: "1mb" }));
