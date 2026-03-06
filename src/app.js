@@ -6,6 +6,7 @@ import cookieParser from "cookie-parser";
 import { connectDB } from "./config/db.js";
 import apiRouter, { loadServices } from "./api/router.js";
 import { recoverOrphanedJobs } from "./api/projects/project.service.js";
+import { startBillingCron } from "./services/cron.service.js";
 
 const app = express();
 
@@ -34,6 +35,9 @@ async function initOnce() {
 
   // Load optional services (webhook, chat, export, etc)
   await loadServices();
+
+  // init Billings cron jobs
+  startBillingCron();
 
   initialized = true;
 }

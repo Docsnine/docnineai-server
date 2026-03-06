@@ -450,7 +450,7 @@ The webhook receiver validates every request using HMAC-SHA256 with a timing-saf
 
 ### GitHub Actions Alternative
 
-Download a pre-configured workflow from `GET /projects/:id/export/yaml` and place it at `.github/workflows/document.yml` in your target repository. Adjust `API_BASE_URL` to point to your deployed instance.
+Download a pre-configured workflow from `GET /projects/:id/export/yaml` and place it at `.github/workflows/document.yml` in your target repository. Adjust `APP_URL` to point to your deployed instance.
 
 ---
 

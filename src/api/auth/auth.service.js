@@ -15,7 +15,7 @@ import {
   sendVerificationEmail,
   sendPasswordResetEmail,
 } from "../../config/email.js";
-
+import { generateGitHubActionsWorkflow } from "../../services/webhook.service.js";
 
 /**
  * Create a new user and send a verification email.
@@ -54,10 +54,9 @@ export async function signup({ name, email, password }) {
   return { user, accessToken, refreshToken };
 }
 
-
 /**
  * Validate credentials and issue tokens.
- * 
+ *
  * @returns {{ user: User, accessToken: string, refreshToken: string }}
  * @throws with code INVALID_CREDENTIALS (same message for bad email or bad password)
  */
@@ -572,6 +571,29 @@ async function issueTokens(user) {
 /**
  * Get webhook status for a user (without exposing the secret).
  */
+function resolveApiBaseUrl(apiBaseUrl) {
+  return (
+    apiBaseUrl ||
+    process.env.API_BASE_URL ||
+    process.env.APP_URL ||
+    "https://your-docnine-instance.com"
+  ).replace(/\/$/, "");
+}
+
+function buildWebhookSettings(user, apiBaseUrl) {
+  const backendBase = resolveApiBaseUrl(apiBaseUrl);
+  const webhookUrl = `${backendBase}/api/webhook`;
+
+  return {
+    webhookUrl,
+    secret: user.webhookSecret,
+    webhookEnabled: user.webhookEnabled,
+    lastWebhookAt: user.lastWebhookAt || null,
+    lastWebhookStatus: user.lastWebhookStatus || null,
+    yaml: generateGitHubActionsWorkflow(backendBase),
+  };
+}
+
 export async function getWebhookStatus(userId) {
   const user = await User.findById(userId).select("+webhookSecret");
   if (!user) throw new Error("User not found");
@@ -588,65 +610,55 @@ export async function getWebhookStatus(userId) {
  * Get or initialize webhook settings for a user (returns secret).
  * If no secret exists, generate one.
  */
-export async function getOrInitializeWebhook(userId) {
+export async function getOrInitializeWebhook(userId, apiBaseUrl) {
   const user = await User.findById(userId).select("+webhookSecret");
   if (!user) throw new Error("User not found");
 
-  // Generate secret if missing
   if (!user.webhookSecret) {
     user.webhookSecret = randomBytes(32).toString("hex");
     await user.save();
   }
 
-  const backendBase = (process.env.API_BASE_URL || "https://your-docnine-instance.com").replace(/\/$/, "");
-  const webhookUrl = `${backendBase}/api/webhook`;
-
-  return {
-    webhookUrl,
-    secret: user.webhookSecret,
-    webhookEnabled: user.webhookEnabled,
-    lastWebhookAt: user.lastWebhookAt || null,
-    lastWebhookStatus: user.lastWebhookStatus || null,
-  };
+  return buildWebhookSettings(user, apiBaseUrl);
 }
 
 /**
  * Rotate the global webhook secret.
  * Returns new secret and webhook URL.
  */
-export async function rotateWebhookSecret(userId) {
+export async function rotateWebhookSecret(userId, apiBaseUrl) {
   const user = await User.findById(userId).select("+webhookSecret");
   if (!user) throw new Error("User not found");
 
   user.webhookSecret = randomBytes(32).toString("hex");
   await user.save();
 
-  const backendBase = (process.env.API_BASE_URL || "https://your-docnine-instance.com").replace(/\/$/, "");
-  const webhookUrl = `${backendBase}/api/webhook`;
-
-  return {
-    webhookUrl,
-    secret: user.webhookSecret,
-    webhookEnabled: user.webhookEnabled,
-  };
+  return buildWebhookSettings(user, apiBaseUrl);
 }
 
 /**
  * Update webhook enable/disable status.
  */
-export async function updateWebhookSettings(userId, webhookEnabled) {
+export async function updateWebhookSettings(
+  userId,
+  webhookEnabled,
+  apiBaseUrl,
+) {
   const user = await User.findById(userId).select("+webhookSecret");
   if (!user) throw new Error("User not found");
 
   user.webhookEnabled = webhookEnabled;
   await user.save();
 
-  const backendBase = (process.env.API_BASE_URL || "https://your-docnine-instance.com").replace(/\/$/, "");
+  const backendBase = resolveApiBaseUrl(apiBaseUrl);
   const webhookUrl = `${backendBase}/api/webhook`;
 
   return {
     webhookUrl,
     webhookEnabled: user.webhookEnabled,
     hasSecret: !!user.webhookSecret,
+    lastWebhookAt: user.lastWebhookAt || null,
+    lastWebhookStatus: user.lastWebhookStatus || null,
+    yaml: generateGitHubActionsWorkflow(backendBase),
   };
 }

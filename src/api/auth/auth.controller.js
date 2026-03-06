@@ -356,6 +356,15 @@ export async function notionDisconnect(req, res) {
 }
 
 // ── GET /auth/webhook/status ──────────────────────────────────
+function getApiBaseUrl(req) {
+  return (
+    req.headers["x-api-base-url"] ||
+    process.env.API_BASE_URL ||
+    process.env.APP_URL ||
+    `${req.protocol}://${req.get("host")}`
+  );
+}
+
 export async function webhookStatus(req, res) {
   try {
     const status = await authService.getWebhookStatus(req.user.userId);
@@ -369,7 +378,10 @@ export async function webhookStatus(req, res) {
 // Initialize or get webhook settings for a user
 export async function initWebhook(req, res) {
   try {
-    const settings = await authService.getOrInitializeWebhook(req.user.userId);
+    const settings = await authService.getOrInitializeWebhook(
+      req.user.userId,
+      getApiBaseUrl(req),
+    );
     return ok(res, settings, "Webhook initialized successfully.");
   } catch (err) {
     return serverError(res, err, "initWebhook");
@@ -380,7 +392,10 @@ export async function initWebhook(req, res) {
 // Rotate the webhook secret
 export async function rotateWebhookSecret(req, res) {
   try {
-    const settings = await authService.rotateWebhookSecret(req.user.userId);
+    const settings = await authService.rotateWebhookSecret(
+      req.user.userId,
+      getApiBaseUrl(req),
+    );
     return ok(res, settings, "Webhook secret rotated successfully.");
   } catch (err) {
     return serverError(res, err, "rotateWebhookSecret");
@@ -395,7 +410,11 @@ export async function updateWebhookSettings(req, res) {
     return fail(res, "VALIDATION_ERROR", "webhookEnabled must be a boolean.", 400);
   }
   try {
-    const settings = await authService.updateWebhookSettings(req.user.userId, webhookEnabled);
+    const settings = await authService.updateWebhookSettings(
+      req.user.userId,
+      webhookEnabled,
+      getApiBaseUrl(req),
+    );
     return ok(res, settings, "Webhook settings updated.");
   } catch (err) {
     return serverError(res, err, "updateWebhookSettings");

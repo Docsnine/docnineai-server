@@ -1,40 +1,14 @@
 import crypto from "crypto";
 
-// ─── Constants ────────────────────────────────────────────────────
-
 const CODE_FILE =
   /\.(js|ts|jsx|tsx|py|go|rs|java|rb|php|cs|cpp|c|h|vue|svelte|prisma|graphql|sql|kt|swift|dart)$/i;
 
-// Manifest files that trigger a full re-run when changed
 const MANIFEST_FILE =
   /^(package\.json|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|requirements\.txt|Pipfile|Pipfile\.lock|go\.mod|go\.sum|Cargo\.toml|Cargo\.lock|pom\.xml|build\.gradle|composer\.json|Gemfile|Gemfile\.lock)$/i;
 
-// ─── Signature Validation ─────────────────────────────────────────
-
-/**
- * Validate a GitHub webhook HMAC-SHA256 signature.
- *
- * BUG FIXED: The original used crypto.timingSafeEqual() which THROWS
- * when the two buffers have different lengths (e.g. malformed signature
- * header). The catch block returned false which masked the real error,
- * but also meant any exception — including legitimate errors — silently
- * failed validation. We now explicitly check lengths before comparing.
- *
- * BUG FIXED: The original accepted `payload` as either a string or
- * Buffer without normalising it first. crypto.createHmac().update()
- * handles both, but callers were sometimes passing a parsed JSON object
- * (after express.json() had already consumed the raw body), which
- * caused JSON.stringify(object) !== original_raw_bytes → always invalid.
- * The fix is enforced at the route level (see api-router.js), but we
- * also guard here.
- *
- * @param {Buffer|string} rawPayload   — raw request body bytes (NOT parsed)
- * @param {string}        signature    — value of X-Hub-Signature-256 header
- * @param {string}        secret       — WEBHOOK_SECRET env variable
- */
-// webhook.service.js - in validateWebhookSignature
 export function validateWebhookSignature(rawPayload, signature, secret) {
   if (!secret) return true;
+  if (!signature || typeof signature !== "string") return false;
 
   const computed = `sha256=${crypto
     .createHmac("sha256", secret)
@@ -44,28 +18,18 @@ export function validateWebhookSignature(rawPayload, signature, secret) {
   const a = Buffer.from(signature);
   const b = Buffer.from(computed);
   if (a.length !== b.length) return false;
+
   return crypto.timingSafeEqual(a, b);
 }
 
-// ─── Should Re-Document? ──────────────────────────────────────────
-
-/**
- * Analyse a push payload and decide whether to trigger a sync.
- *
- * Returns:
- *   { should: false, reason }
- *   { should: true, changedFiles, codeFiles, needsFullRun, ... }
- */
 export function shouldReDocument(pushPayload) {
   const { ref, repository, commits = [], after } = pushPayload;
   const defaultBranch = repository?.default_branch || "main";
 
-  // Only respond to pushes on the default branch
   if (!ref || !ref.endsWith(`/${defaultBranch}`)) {
     return { should: false, reason: "not_default_branch", ref, defaultBranch };
   }
 
-  // after = "0000000000000000000000000000000000000000" means branch deleted
   if (after === "0000000000000000000000000000000000000000") {
     return { should: false, reason: "branch_deleted" };
   }
@@ -74,8 +38,6 @@ export function shouldReDocument(pushPayload) {
     return { should: false, reason: "no_commits" };
   }
 
-  // Build a deduplicated changed-file list from all commits in the push.
-  // Priority: removed > modified > added (last write wins per path)
   const pathMap = new Map();
 
   for (const commit of commits) {
@@ -98,7 +60,6 @@ export function shouldReDocument(pushPayload) {
     };
   }
 
-  // Check if a manifest file changed — signals a full re-run is needed
   const needsFullRun = changedFiles.some((f) =>
     MANIFEST_FILE.test(f.path.split("/").pop()),
   );
@@ -106,40 +67,188 @@ export function shouldReDocument(pushPayload) {
   return {
     should: true,
     reason: "code_changed",
-    changedFiles, // all changed files (all statuses)
-    codeFiles, // code-only subset
-    needsFullRun, // true → force full pipeline
+    changedFiles,
+    codeFiles,
+    needsFullRun,
     repoUrl: repository?.html_url,
     repoFullName: repository?.full_name,
     pusher: pushPayload.pusher?.name || pushPayload.sender?.login,
     branch: defaultBranch,
-    headCommit: after, // new HEAD SHA from push event
+    headCommit: after,
     commitCount: commits.length,
   };
 }
 
-// ─── Handle Incoming Push Webhook ─────────────────────────────────
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
-/**
- * Process a GitHub push webhook.
- *
- * Expects:
- *   payload   — raw Buffer or string (NOT parsed object — see note above)
- *   signature — X-Hub-Signature-256 header value
- *   secret    — WEBHOOK_SECRET
- */
-export async function handleWebhook({ payload, signature, secret }) {
-  // ── 1. Validate signature ──────────────────────────────────
+function parseRepoIdentity(input) {
+  const raw = String(input || "").trim();
+  if (!raw) return null;
+
+  const fullName = raw.match(/^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/);
+  if (fullName) {
+    const owner = fullName[1];
+    const repo = fullName[2].replace(/\.git$/i, "");
+    return {
+      owner,
+      repo,
+      fullName: `${owner}/${repo}`,
+      repoUrl: `https://github.com/${owner}/${repo}`,
+    };
+  }
+
+  try {
+    let normalized = raw;
+    if (/^git@github\.com:/i.test(normalized)) {
+      normalized = `https://github.com/${normalized.replace(/^git@github\.com:/i, "")}`;
+    }
+
+    const u = new URL(normalized);
+    if (!/github\.com$/i.test(u.hostname)) return null;
+
+    const parts = u.pathname
+      .replace(/^\/+|\/+$/g, "")
+      .replace(/\.git$/i, "")
+      .split("/");
+
+    if (parts.length < 2 || !parts[0] || !parts[1]) return null;
+
+    const owner = parts[0];
+    const repo = parts[1];
+    return {
+      owner,
+      repo,
+      fullName: `${owner}/${repo}`,
+      repoUrl: `https://github.com/${owner}/${repo}`,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function getRepoIdentityFromPayload(payload) {
+  const repository = payload?.repository || {};
+  const candidates = [
+    repository.full_name,
+    repository.html_url,
+    repository.clone_url,
+    repository.ssh_url,
+    repository.git_url,
+  ];
+
+  for (const c of candidates) {
+    const parsed = parseRepoIdentity(c);
+    if (parsed) return parsed;
+  }
+
+  if (repository.owner?.login && repository.name) {
+    const owner = String(repository.owner.login);
+    const repo = String(repository.name).replace(/\.git$/i, "");
+    return {
+      owner,
+      repo,
+      fullName: `${owner}/${repo}`,
+      repoUrl: `https://github.com/${owner}/${repo}`,
+    };
+  }
+
+  return null;
+}
+
+async function findProjectAndUserForWebhook({
+  rawPayload,
+  signature,
+  repoIdentity,
+}) {
+  const { Project } = await import("../models/Project.js");
+  const { User } = await import("../models/User.js");
+
+  const ownerRx = new RegExp(`^${escapeRegExp(repoIdentity.owner)}$`, "i");
+  const repoRx = new RegExp(`^${escapeRegExp(repoIdentity.repo)}$`, "i");
+
+  const candidates = await Project.find({
+    repoOwner: ownerRx,
+    repoName: repoRx,
+    status: { $ne: "archived" },
+  })
+    .select("_id userId repoUrl repoOwner repoName status updatedAt")
+    .sort({ updatedAt: -1 })
+    .lean(false);
+
+  if (!candidates.length) {
+    return { kind: "no_project" };
+  }
+
+  const userCache = new Map();
+  const userOrder = [];
+  const seen = new Set();
+
+  for (const project of candidates) {
+    const userId = project.userId.toString();
+    if (seen.has(userId)) continue;
+    seen.add(userId);
+    userOrder.push(userId);
+  }
+
+  for (const userId of userOrder) {
+    if (!userCache.has(userId)) {
+      const user = await User.findById(userId).select(
+        "+webhookSecret webhookEnabled",
+      );
+      userCache.set(userId, user || null);
+    }
+
+    const user = userCache.get(userId);
+    if (!user?.webhookSecret) continue;
+
+    const valid = validateWebhookSignature(
+      rawPayload,
+      signature || "",
+      user.webhookSecret,
+    );
+
+    if (!valid) continue;
+
+    const userProjects = candidates.filter(
+      (p) => p.userId.toString() === userId,
+    );
+    const project =
+      userProjects.find((p) => p.status === "done" || p.status === "error") ||
+      userProjects[0];
+
+    return { kind: "match", project, user };
+  }
+
+  return { kind: "invalid_signature" };
+}
+
+async function updateUserWebhookStatus({ userId, status }) {
+  try {
+    const { User } = await import("../models/User.js");
+    await User.findByIdAndUpdate(userId, {
+      $set: {
+        lastWebhookAt: new Date(),
+        lastWebhookStatus: status,
+      },
+    });
+  } catch (err) {
+    console.error(
+      `[webhook] Failed to update user webhook status (${userId}): ${err.message}`,
+    );
+  }
+}
+
+export async function handleWebhook({ payload, signature }) {
   const rawPayload = Buffer.isBuffer(payload)
     ? payload
     : typeof payload === "string"
-      ? payload
+      ? Buffer.from(payload, "utf8")
       : null;
 
   if (!rawPayload) {
-    console.error(
-      "[webhook] ✗ Payload is neither Buffer nor string — raw body middleware missing",
-    );
+    console.error("[webhook] Invalid payload type (expected Buffer/string)");
     return {
       status: 400,
       body: {
@@ -149,18 +258,6 @@ export async function handleWebhook({ payload, signature, secret }) {
     };
   }
 
-  const isValid = validateWebhookSignature(rawPayload, signature, secret);
-  if (!isValid) {
-    console.warn("[webhook] ✗ Signature validation failed");
-    console.warn(`[webhook]   Received:  ${signature?.slice(0, 45)}...`);
-    console.warn(`[webhook]   Secret set: ${!!secret}`);
-    console.warn(`[webhook]   Payload length: ${rawPayload.length} bytes`);
-    return { status: 401, body: { error: "Invalid webhook signature" } };
-  }
-
-  console.log("[webhook] ✓ Signature valid");
-
-  // ── 2. Parse payload ──────────────────────────────────────
   let parsed;
   try {
     parsed = JSON.parse(rawPayload.toString("utf8"));
@@ -171,17 +268,62 @@ export async function handleWebhook({ payload, signature, secret }) {
     };
   }
 
-  // ── 3. Check GitHub event type ────────────────────────────
-  // We only handle push events — ping and others are acknowledged but skipped
-  // The event type comes from X-GitHub-Event header (passed in options)
-  // If not passed, we infer from payload shape
+  const repoIdentity = getRepoIdentityFromPayload(parsed);
+  if (!repoIdentity) {
+    return {
+      status: 400,
+      body: {
+        error:
+          "Could not determine repository identity from payload. Ensure repository.full_name or repository.html_url is present.",
+      },
+    };
+  }
+
+  const match = await findProjectAndUserForWebhook({
+    rawPayload,
+    signature,
+    repoIdentity,
+  });
+
+  if (match.kind === "no_project") {
+    console.log(`[webhook] No project registered for ${repoIdentity.fullName}`);
+    return {
+      status: 200,
+      body: {
+        message:
+          "No project registered for this repository. Create one via the dashboard first.",
+        repoUrl: repoIdentity.repoUrl,
+      },
+    };
+  }
+
+  if (match.kind === "invalid_signature") {
+    console.warn(
+      `[webhook] Signature validation failed for ${repoIdentity.fullName}`,
+    );
+    return { status: 401, body: { error: "Invalid webhook signature" } };
+  }
+
+  const project = match.project;
+  const user = match.user;
+
+  if (!user.webhookEnabled) {
+    console.log(
+      `[webhook] Skipped for user ${user._id}: account webhooks are disabled`,
+    );
+    await updateUserWebhookStatus({ userId: user._id, status: "skipped" });
+    return {
+      status: 200,
+      body: { message: "Webhooks are disabled for this account." },
+    };
+  }
+
   const isPushEvent = parsed.ref && parsed.commits !== undefined;
   const isPingEvent = parsed.zen !== undefined;
 
   if (isPingEvent) {
-    console.log(
-      "[webhook] ✓ Ping event received — webhook configured correctly",
-    );
+    console.log(`[webhook] Ping event verified for user ${user._id}`);
+    await updateUserWebhookStatus({ userId: user._id, status: "success" });
     return {
       status: 200,
       body: { message: "Pong! Webhook configured correctly." },
@@ -189,142 +331,94 @@ export async function handleWebhook({ payload, signature, secret }) {
   }
 
   if (!isPushEvent) {
+    await updateUserWebhookStatus({ userId: user._id, status: "skipped" });
     return {
       status: 200,
       body: {
-        message: "Event type not handled — only push events trigger sync.",
+        message: "Event type not handled - only push events trigger sync.",
       },
     };
   }
 
-  // ── 4. Decide whether to re-document ─────────────────────
   const check = shouldReDocument(parsed);
-
   if (!check.should) {
-    console.log(`[webhook] Skipped: ${check.reason}`);
+    console.log(`[webhook] Skipped for ${project._id}: ${check.reason}`);
+    await updateUserWebhookStatus({ userId: user._id, status: "skipped" });
     return {
       status: 200,
       body: { message: `Skipped: ${check.reason}`, detail: check },
     };
   }
 
-  console.log(
-    `[webhook] Push on ${check.repoFullName} by ${check.pusher} — ` +
-      `${check.codeFiles.length} code files · ${check.commitCount} commit(s)` +
-      (check.needsFullRun
-        ? " · FULL RUN (manifest changed)"
-        : " · incremental"),
-  );
-
-  // ── 5. Find registered projects for this repo ────────────
-  const { Project } = await import("../models/Project.js");
-  const { syncProject } = await import("../api/projects/project.service.js");
-
-  // Normalise URL for matching — strip trailing slash, .git, case-insensitive
-  const normUrl = (check.repoUrl || "")
-    .replace(/\.git$/, "")
-    .replace(/\/$/, "");
-  if (!normUrl) {
+  if (project.status === "running" || project.status === "queued") {
+    await updateUserWebhookStatus({ userId: user._id, status: "skipped" });
     return {
-      status: 400,
-      body: { error: "Could not determine repository URL from payload" },
+      status: 202,
+      body: { message: "Pipeline already running", projectId: project._id },
     };
   }
 
-  // Escape special regex chars before using in $regex query
-  const escapedUrl = normUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-  const projects = await Project.find({
-    repoUrl: { $regex: escapedUrl, $options: "i" },
-    status: { $in: ["done", "error"] },
-  })
-    .select("+agentOutputs +fileManifest +events")
-    // lean(false) — we need Mongoose documents for syncProject
-    .lean(false);
-
-  if (projects.length === 0) {
-    console.log(`[webhook] No projects found for ${normUrl}`);
+  if (project.status === "archived") {
+    await updateUserWebhookStatus({ userId: user._id, status: "skipped" });
     return {
-      status: 200,
+      status: 202,
+      body: { message: "Project is archived", projectId: project._id },
+    };
+  }
+
+  if (project.status !== "done" && project.status !== "error") {
+    await updateUserWebhookStatus({ userId: user._id, status: "skipped" });
+    return {
+      status: 202,
       body: {
-        message:
-          "No projects registered for this repository. Create one via the dashboard first.",
-        repoUrl: check.repoUrl,
+        message: "Project must be in done or error state to sync",
+        status: project.status,
+        projectId: project._id,
       },
     };
   }
 
-  // ── 6. Trigger incremental sync for each project ─────────
-  const triggered = [];
-  const errors = [];
+  const { syncProject } = await import("../api/projects/project.service.js");
 
-  // Run syncs in parallel — each project is independent
-  await Promise.all(
-    projects.map(async (project) => {
-      try {
-        const result = await syncProject({
-          projectId: project._id.toString(),
-          userId: project.userId.toString(),
-          forceFullRun: check.needsFullRun,
-          webhookChangedFiles: check.changedFiles,
-        });
+  try {
+    const result = await syncProject({
+      projectId: project._id.toString(),
+      userId: project.userId.toString(),
+      forceFullRun: check.needsFullRun,
+      webhookChangedFiles: check.changedFiles,
+    });
 
-        triggered.push({
-          projectId: project._id,
-          streamUrl: result.streamUrl,
-          jobId: result.project?.jobId,
-        });
+    await updateUserWebhookStatus({ userId: user._id, status: "success" });
 
-        console.log(
-          `[webhook] ✓ Sync triggered — project ${project._id} ` +
-            `(user ${project.userId}) · job ${result.project?.jobId}`,
-        );
-      } catch (err) {
-        errors.push({
-          projectId: project._id,
-          error: err.message,
-          code: err.code,
-        });
-        console.error(
-          `[webhook] ✗ Failed to trigger sync for project ${project._id}:`,
-          err.message,
-        );
-      }
-    }),
-  );
-
-  return {
-    status: 202,
-    body: {
-      message: `Sync triggered for ${triggered.length} project(s)`,
-      triggered,
-      errors: errors.length ? errors : undefined,
-      repoUrl: check.repoUrl,
-      branch: check.branch,
-      headCommit: check.headCommit?.slice(0, 8),
-      codeFiles: check.codeFiles.length,
-      needsFullRun: check.needsFullRun,
-    },
-  };
+    return {
+      status: 202,
+      body: {
+        message: "Sync triggered",
+        projectId: project._id,
+        jobId: result.project?.jobId,
+        streamUrl: result.streamUrl,
+        repoUrl: project.repoUrl || repoIdentity.repoUrl,
+        branch: check.branch,
+        headCommit: check.headCommit?.slice(0, 8),
+        codeFiles: check.codeFiles.length,
+        needsFullRun: check.needsFullRun,
+      },
+    };
+  } catch (err) {
+    console.error(
+      `[webhook] Failed to trigger sync for project ${project._id}: ${err.message}`,
+    );
+    await updateUserWebhookStatus({ userId: user._id, status: "failed" });
+    return {
+      status: 500,
+      body: {
+        error: `Failed to trigger sync: ${err.message}`,
+        code: err.code,
+      },
+    };
+  }
 }
 
-// ─── GitHub Actions Workflow Generator ───────────────────────────
-
-/**
- * Generate a .github/workflows/document.yml that:
- *   1. Runs on every push to main/master
- *   2. Computes an HMAC-SHA256 signature over the payload it sends
- *   3. POSTs to your webhook endpoint with the correct signature
- *
- * BUG FIXED: The original generated workflow sent the payload without
- * computing a signature — it just forwarded whatever was in the header
- * from the GitHub event context. The signature in ${{ github.event }}
- * was computed by GitHub over the ORIGINAL webhook bytes, which differ
- * from the reconstructed curl payload, causing permanent signature
- * mismatch (exactly the error in the CI logs).
- *
- * The fix: compute a fresh HMAC over the exact payload bytes being sent.
- */
 export function generateGitHubActionsWorkflow(apiBaseUrl) {
   const base = (apiBaseUrl || "https://your-docnine-instance.com").replace(
     /\/$/,
@@ -334,14 +428,15 @@ export function generateGitHubActionsWorkflow(apiBaseUrl) {
   return `# .github/workflows/document.yml
 # Auto-generated by Docnine
 # Triggers an incremental documentation sync on every push to main.
-# Only changed files are re-documented — fast and token-efficient.
+# Only changed files are re-documented - fast and token-efficient.
 #
 # SETUP:
-#   1. Go to your repo Settings → Secrets and variables → Actions
+#   1. Go to your repo Settings -> Secrets and variables -> Actions
 #   2. Add a secret named DOCNINE_WEBHOOK_SECRET
-#      (must match the WEBHOOK_SECRET set on your Docnine server)
-#   3. Add a secret named DOCNINE_PROJECT_ID
-#      (the project ID from your Docnine dashboard)
+#      (copy once from Docnine Settings -> Webhook Integration)
+#   3. Commit this workflow file
+#
+# Reuse the same DOCNINE_WEBHOOK_SECRET across all repos in your account.
 
 name: Auto-Document
 
@@ -400,8 +495,6 @@ jobs:
           EOF
           )
 
-          # Compute HMAC-SHA256 signature over the exact payload bytes being sent.
-          # This MUST use the same secret configured on your Docnine server.
           SIGNATURE="sha256=\$(echo -n "\${PAYLOAD}" | openssl dgst -sha256 -hmac "\${WEBHOOK_SECRET}" | awk '{print \$2}')"
 
           echo "Sending sync request to \${API_BASE_URL}/api/webhook"
@@ -413,233 +506,30 @@ jobs:
             -H "Content-Type: application/json" \\
             -H "X-Hub-Signature-256: \${SIGNATURE}" \\
             -H "X-GitHub-Event: push" \\
-            -d "\${PAYLOAD}" \\
+            --data-binary "\${PAYLOAD}" \\
             "\${API_BASE_URL}/api/webhook")
 
           RESPONSE=\$(cat /tmp/webhook_response.json)
           echo "HTTP Status: \${HTTP_STATUS}"
           echo "Response: \${RESPONSE}"
 
-          # Fail the step if the server returned an error
           if [ "\${HTTP_STATUS}" -ge 400 ]; then
-            echo "❌ Webhook returned HTTP \${HTTP_STATUS}"
+            echo "Webhook returned HTTP \${HTTP_STATUS}"
             echo "Error: \$(echo "\${RESPONSE}" | jq -r '.error // .message // "Unknown error"')"
             exit 1
           fi
 
-          TRIGGERED=\$(echo "\${RESPONSE}" | jq -r '.triggered | length // 0')
-          echo "✓ Sync triggered for \${TRIGGERED} project(s)"
+          MESSAGE=\$(echo "\${RESPONSE}" | jq -r '.message // "Webhook delivered"')
+          PROJECT_ID=\$(echo "\${RESPONSE}" | jq -r '.projectId // ""')
+
+          if [ -n "\${PROJECT_ID}" ]; then
+            echo "Sync triggered for project \${PROJECT_ID}"
+          else
+            echo "\${MESSAGE}"
+          fi
 `;
 }
 
-// ─── Per-Project Webhook Handler ──────────────────────────────────
-
-/**
- * Process a webhook for a specific project.
- *
- * This is the per-project endpoint: POST /api/webhook/:projectId
- * Validates signature against the project's own webhookSecret.
- *
- * Expects:
- *   projectId — URL param
- *   payload   — raw Buffer
- *   signature — X-Hub-Signature-256 header
- *   secret    — loaded from Project.webhookSecret
- */
-export async function handleProjectWebhook({ projectId, payload, signature }) {
-  const { Project } = await import("../models/Project.js");
-  const { syncProject } = await import("../api/projects/project.service.js");
-  const { updateWebhookStatus } =
-    await import("../api/projects/webhook.service.js");
-
-  // ── 1. Load the project ────────────────────────────────────
-  const project = await Project.findById(projectId).select(
-    "+webhookSecret +agentOutputs +fileManifest +events",
-  );
-
-  if (!project) {
-    console.warn(`[webhook:${projectId}] ✗ Project not found`);
-    return {
-      status: 404,
-      body: { error: "Project not found" },
-    };
-  }
-
-  // ── 2. Check if webhooks are enabled ───────────────────────
-  if (!project.webhookEnabled) {
-    console.log(`[webhook:${projectId}] Skipped: webhooks disabled`);
-    await updateWebhookStatus({ projectId, status: "skipped" });
-    return {
-      status: 200,
-      body: { message: "Webhooks disabled for this project" },
-    };
-  }
-
-  // ── 3. Validate signature ──────────────────────────────────
-  const rawPayload = Buffer.isBuffer(payload)
-    ? payload
-    : typeof payload === "string"
-      ? Buffer.from(payload)
-      : null;
-
-  if (!rawPayload) {
-    console.error(
-      `[webhook:${projectId}] ✗ Payload is neither Buffer nor string`,
-    );
-    await updateWebhookStatus({ projectId, status: "failed" });
-    return {
-      status: 400,
-      body: { error: "Invalid payload format" },
-    };
-  }
-
-  const isValid = validateWebhookSignature(
-    rawPayload,
-    signature,
-    project.webhookSecret,
-  );
-
-  if (!isValid) {
-    console.warn(`[webhook:${projectId}] ✗ Signature validation failed`);
-    console.warn(
-      `[webhook:${projectId}]   Expected secret length: ${project.webhookSecret.length}`,
-    );
-    console.warn(
-      `[webhook:${projectId}]   Payload length: ${rawPayload.length} bytes`,
-    );
-    await updateWebhookStatus({ projectId, status: "failed" });
-    return { status: 401, body: { error: "Invalid webhook signature" } };
-  }
-
-  console.log(`[webhook:${projectId}] ✓ Signature valid`);
-
-  // ── 4. Parse payload ──────────────────────────────────────
-  let parsed;
-  try {
-    parsed = JSON.parse(rawPayload.toString("utf8"));
-  } catch (err) {
-    console.error(`[webhook:${projectId}] ✗ JSON parse failed: ${err.message}`);
-    await updateWebhookStatus({ projectId, status: "failed" });
-    return {
-      status: 400,
-      body: { error: `Invalid JSON payload: ${err.message}` },
-    };
-  }
-
-  // ── 5. Check GitHub event type ────────────────────────────
-  const isPushEvent = parsed.ref && parsed.commits !== undefined;
-  const isPingEvent = parsed.zen !== undefined;
-
-  if (isPingEvent) {
-    console.log(`[webhook:${projectId}] ✓ Ping event`);
-    await updateWebhookStatus({ projectId, status: "success" });
-    return {
-      status: 200,
-      body: { message: "Pong! Webhook configured correctly." },
-    };
-  }
-
-  if (!isPushEvent) {
-    console.log(`[webhook:${projectId}] Skipped: not a push event`);
-    await updateWebhookStatus({ projectId, status: "skipped" });
-    return {
-      status: 200,
-      body: {
-        message: "Event type not handled — only push events trigger sync.",
-      },
-    };
-  }
-
-  // ── 6. Decide whether to re-document ─────────────────────
-  const check = shouldReDocument(parsed);
-
-  if (!check.should) {
-    console.log(`[webhook:${projectId}] Skipped: ${check.reason}`);
-    await updateWebhookStatus({ projectId, status: "skipped" });
-    return {
-      status: 200,
-      body: { message: `Skipped: ${check.reason}`, detail: check },
-    };
-  }
-
-  console.log(
-    `[webhook:${projectId}] Push by ${check.pusher} — ` +
-      `${check.codeFiles.length} code files · ${check.commitCount} commit(s)` +
-      (check.needsFullRun
-        ? " · FULL RUN (manifest changed)"
-        : " · incremental"),
-  );
-
-  // ── 7. Check project is ready for sync ──────────────────────
-  if (project.status === "running" || project.status === "queued") {
-    console.log(`[webhook:${projectId}] Skipped: pipeline already running`);
-    await updateWebhookStatus({ projectId, status: "skipped" });
-    return {
-      status: 202,
-      body: { message: "Pipeline already running" },
-    };
-  }
-
-  if (project.status === "archived") {
-    console.log(`[webhook:${projectId}] Skipped: project archived`);
-    await updateWebhookStatus({ projectId, status: "skipped" });
-    return {
-      status: 202,
-      body: { message: "Project is archived" },
-    };
-  }
-
-  if (project.status !== "done" && project.status !== "error") {
-    console.log(
-      `[webhook:${projectId}] Skipped: project not in done/error state`,
-    );
-    await updateWebhookStatus({ projectId, status: "skipped" });
-    return {
-      status: 202,
-      body: {
-        message: "Project must be in done or error state to sync",
-        status: project.status,
-      },
-    };
-  }
-
-  // ── 8. Trigger sync ────────────────────────────────────────
-  try {
-    const result = await syncProject({
-      projectId: projectId,
-      userId: project.userId.toString(),
-      forceFullRun: check.needsFullRun,
-      webhookChangedFiles: check.changedFiles,
-    });
-
-    console.log(
-      `[webhook:${projectId}] ✓ Sync triggered · job ${result.project?.jobId}`,
-    );
-    await updateWebhookStatus({ projectId, status: "success" });
-
-    return {
-      status: 202,
-      body: {
-        message: "Sync triggered",
-        projectId: projectId,
-        jobId: result.project?.jobId,
-        streamUrl: result.streamUrl,
-        codeFiles: check.codeFiles.length,
-        needsFullRun: check.needsFullRun,
-      },
-    };
-  } catch (err) {
-    console.error(
-      `[webhook:${projectId}] ✗ Failed to trigger sync: ${err.message}`,
-    );
-    await updateWebhookStatus({ projectId, status: "failed" });
-
-    return {
-      status: 500,
-      body: {
-        error: `Failed to trigger sync: ${err.message}`,
-        code: err.code,
-      },
-    };
-  }
-}
+// handleProjectWebhook has been removed (v4.1+)
+// Webhook architecture now uses user-level webhook secret with server-side repo matching.
+// See handleWebhook() for the current implementation.

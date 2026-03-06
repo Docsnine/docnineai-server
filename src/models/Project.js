@@ -221,31 +221,6 @@ const ProjectSchema = new Schema(
       select: false, // only fetched during sync operations
     },
 
-    // ── Webhook settings (v4.0 — per-project webhooks) ─────────
-    // Unique 32-byte hex secret for this project's webhook.
-    // Never exposed in list queries or public responses — only via
-    // the dedicated settings endpoint GET /projects/:id/webhook.
-    webhookSecret: {
-      type: String,
-      required: true,
-      select: false, // sensitive — must opt-in to fetch
-    },
-
-    // Whether webhooks are enabled for automatic sync on push.
-    webhookEnabled: {
-      type: Boolean,
-      default: true,
-    },
-
-    // Timestamp of the last webhook delivery (push or manual).
-    lastWebhookAt: Date,
-
-    // Status of the last webhook delivery: "success" | "failed" | "skipped"
-    lastWebhookStatus: {
-      type: String,
-      enum: ["success", "failed", "skipped"],
-    },
-
     // ── Chat session ──────────────────────────────────────────
     chatSessionId: String,
 
