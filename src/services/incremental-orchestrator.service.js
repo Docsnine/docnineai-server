@@ -1407,7 +1407,7 @@ async function fullSyncFallback(
 
   emit("sync:full", "running", "Running full pipeline…", `${owner}/${repo}`);
 
-  const { orchestrate } = await import("./orchestrator.js");
+  const { orchestrate } = await import("./orchestrator.service.js");
   const result = await orchestrate(project.repoUrl, onProgress);
 
   if (!result.success) {
