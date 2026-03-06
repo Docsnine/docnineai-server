@@ -128,7 +128,7 @@ app.get("/", (_req, res) => {
   });
 });
 
-app.use("/api", apiRouter);
+app.use("/", apiRouter);
 
 // ── 404 ────────────────────────────────────
 app.use((req, res) => {
