@@ -359,7 +359,7 @@ export async function notionDisconnect(req, res) {
 function getApiBaseUrl(req) {
   return (
     req.headers["x-api-base-url"] ||
-    process.env.API_BASE_URL ||
+    process.env.APP_URL ||
     process.env.APP_URL ||
     `${req.protocol}://${req.get("host")}`
   );

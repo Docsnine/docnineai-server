@@ -574,7 +574,7 @@ async function issueTokens(user) {
 function resolveApiBaseUrl(apiBaseUrl) {
   return (
     apiBaseUrl ||
-    process.env.API_BASE_URL ||
+    process.env.APP_URL ||
     process.env.APP_URL ||
     "https://your-docnine-instance.com"
   ).replace(/\/$/, "");

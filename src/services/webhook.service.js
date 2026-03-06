@@ -472,7 +472,7 @@ jobs:
       - name: Trigger Docnine Documentation Sync
         env:
           WEBHOOK_SECRET: \${{ secrets.DOCNINE_WEBHOOK_SECRET }}
-          API_BASE_URL:   ${base}
+          APP_URL:   ${base}
         run: |
           # Build the payload from the GitHub push context
           REPO_URL="\${{ github.server_url }}/\${{ github.repository }}"
@@ -497,7 +497,7 @@ jobs:
 
           SIGNATURE="sha256=\$(echo -n "\${PAYLOAD}" | openssl dgst -sha256 -hmac "\${WEBHOOK_SECRET}" | awk '{print \$2}')"
 
-          echo "Sending sync request to \${API_BASE_URL}/api/webhook"
+          echo "Sending sync request to \${APP_URL}/api/webhook"
           echo "Repository: \${REPO_URL}"
           echo "Commit: \${HEAD_COMMIT}"
 
@@ -507,7 +507,7 @@ jobs:
             -H "X-Hub-Signature-256: \${SIGNATURE}" \\
             -H "X-GitHub-Event: push" \\
             --data-binary "\${PAYLOAD}" \\
-            "\${API_BASE_URL}/api/webhook")
+            "\${APP_URL}/api/webhook")
 
           RESPONSE=\$(cat /tmp/webhook_response.json)
           echo "HTTP Status: \${HTTP_STATUS}"
